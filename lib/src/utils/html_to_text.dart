@@ -225,7 +225,7 @@ class HtmlToText {
               href.toLowerCase().startsWith('matrix:')) {
             return content;
           }
-          return '🔗$content';
+          return '$content';
         case 'img':
           return node.attributes['alt'] ??
               node.attributes['title'] ??
