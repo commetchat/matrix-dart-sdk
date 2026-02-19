@@ -28,9 +28,13 @@ final libcrypto = () {
     return DynamicLibrary.open('libcrypto.dll');
   } else if (Platform.isMacOS) {
     try {
-      return DynamicLibrary.open('libcrypto.3.dylib');
-    } catch (_) {
-      return DynamicLibrary.open('libcrypto.1.1.dylib');
+      return DynamicLibrary.process();
+    } catch(_) {
+      try {
+        return DynamicLibrary.open('libcrypto.3.dylib');
+      } catch (_) {
+        return DynamicLibrary.open('libcrypto.1.1.dylib');
+      }
     }
   } else {
     try {
