@@ -1,9 +1,144 @@
-## [1.1.1] 7th Aug 2025
+## [6.1.1] 7th Feb 2026
+
+- fix: handle UIA case for unexpectedResponse during exception + tests
+
+## [6.1.0] 6th Feb 2026
+
+- build: Update vodozemac to 0.5.0 (Christian Kußowski)
+- chore: Add tests for OIDC refresh and logout (Christian Kußowski)
+- chore: better default body for unknown message format in calcUnlocalizedBody (Karthikeyan S)
+- chore: Store oidc client id (Christian Kußowski)
+- feat: Logout with oidc (Christian Kußowski)
+- feat: Refresh token with matrix native oidc (Christian Kußowski)
+- fix: Room.searchEvents() returns empty list if all events are cached in db (Christian Kußowski)
+- refactor: Always try deserialize error as matrixexception (Christian Kußowski)
+
+## [6.0.0] 21st Jan 2026
+
+- feat: add an option to intercept log events (#2233) (Yash Garg)
+- feat: Simplified bootstrap with crypto identity extension (Christian Kußowski)
+- fix: don't remove local participant on group call reconnection (Karthikeyan S)
+- refactor: (BREAKING) Use unified requestAndCache method (Christian Kußowski)
+
+## [5.0.0] 12th Jan 2026
+- feat: Implement MSC2964 dynamic client registration (Christian Kußowski)
+- feat: Implement MSC2964 OIDC login flow (Christian Kußowski)
+- feat: MSC4075 - MatrixRTC notification event (call ringing) (Karthikeyan S)
+- feat: send MSC4075 notification event for group calls (Karthikeyan S)
+- fix: override server sent group call leave if we know we are still in a group call (td)
+- fix: unescaped property keys in push rule evaluator + tests (Karthikeyan S)
+- refactor: (BREAKING) Event info map (Christian Kußowski)
+- refactor: Add name property to ssss key and pass through keyId for opening (Christian Kußowski)
+- refactor: Store read receipts in own box instead of room account data (Christian Kußowski)
+- test: \[Room].isDirectChat functionality (Karthikeyan S)
+
+## [4.1.0] 20th December 2025
+- refactor: Deprecated Client.customRefreshTokenLifetime in favor of method parameter (Christian Kußowski)
+
+## [4.0.3] 17th December 2025
+- fix: remove call member event wrt unprotected state keys (td)
+
+## [4.0.2] 16th December 2025
+
+- feat: New searchEvents method in room (Christian Kußowski)
+- fix: config option with voip to use unprotected state keys for group call member events (td)
+- fix: skip unnecessary 404 errors in profile fetching for member displayname change events in timeline (Karthikeyan S)
+
+## [4.0.1] 9th December 2025
+
+- refactor: CI as integrate.yaml file without file (Christian Kußowski)
+- refactor: Update lints package and add missing type annotations (Christian Kußowski)
+- feat: add a flag to use MSC3757 (Yash Garg)
+
+## [4.0.0] 13th November 2025
+
+Matrix Dart SDK 4.0.0 comes with support for polls, adds first bits towards OIDC and improved
+support for spaces and threads.
+This release also fixes a major performance leak while updating user device keys in the sync loop.
+Especially for larger accounts this should improve the performance a lot.
+v4.0.0 It comes with some breaking changes:
+
+#### Migration guide
+
+- `Client.checkHomeserver()` now returns a fourth value. You can just ignore it if you don't need auth_metadata.
+- `RelationshipType.reply` has been removed in favor of `Event.inReplyToEventId()` where you can set if you want to ignore fallbacks or not. This makes it easier to differenciate fallback replies and replies inside of a thread.
+
+#### All changes
+- feat: (BREAKING) Discover OIDC auth metadata on Client.checkHomeserver() (Christian Kußowski)
+- feat: Allow init with access token (Christian Kußowski)
+- feat: Implement msc 3381 polls (krille-chan)
+- feat: Use small versions of bullet point characters (Kelrap)
+- fix: Correctly remove space child (Christian Kußowski)
+- fix: Set join rules with knowk_restricted and multiple allow condition room ids (Christian Kußowski)
+- refactor: (BREAKING) Replace Event.relationshipType and Event.relationshipEventId with Event.inReplyToEventId() for replies. (Christian Kußowski)
+- refactor: Add option to always call auth metadata (Christian Kußowski)
+- refactor: Escape HTML tags before markdown rendering (Christian Kußowski)
+- refactor: Make direct chat getter type safe (Christian Kußowski)
+- refactor: Simpler update user device keys (Christian Kußowski)
+- chore: Cache auth metadata response in client (Christian Kußowski)
+- chore: Remove flutter from CI (Christian Kußowski)
+
+## [3.0.2] 24th October 2025
+
+- chore: bump vodozemac version to v0.4.0 (Karthikeyan S)
+- refactor: merge onGroupCallState and onGroupCallEvent into matrixRTCEventStream with proper types (Karthikeyan S)
+- test: matrixRTCEventStream emitted events in a group call (Karthikeyan S)
+
+## [3.0.1] 15th October 2025
+- feat: Make display sending event configurable in Room.sendEvent() (Christian Kußowski)
+- chore: tidy up call membership event (td)
+- fix: Remove avatar crashes with invalid uri (Christian Kußowski)
+
+## [3.0.0] 7th October 2025
+
+#### Migration hints:
+
+- With extended profiles in Matrix 1.16 you now have to use `Client.getProfileField()` instead of `Client.getAvatar()` or `Client.getDisplayname()`.
+
+- You no longer need to ship [flutter_openssl_crypto](https://pub.dev/packages/flutter_openssl_crypto). The necessary encryption algorithms now come from the Vodozemac package. This should make the platform integration much easier.
+
+#### All changes:
+
+- feat: Add deleteDeviceDisplayName() method to matrix API (Christian Kußowski)
+- feat: Add onProgress for upload and download methods (Christian Kußowski)
+- feat: Auto refresh last event after limited timeline (Christian Kußowski)
+- feat: Implement get mentions from event content (Christian Kußowski)
+- feat: Leave DM rooms and invite when ignoring a user (Christian Kußowski)
+- feat: reactions for voip calls (td)
+- feat: Set m.mention field when sending text event (Christian Kußowski)
+- fix: (BREAKING CHANGE) remove only your device call membership if room is not msc3757 (td)
+- fix: Set unread notification count only if not null in sync (Christian Kußowski)
+- refactor: migrate to web and js_interop pkgs (Karthikeyan S)
+- refactor: Return a better default for lastEventReceivedTime (Christian Kußowski)
+- refactor: Support matrix spec 1.16 (Christian Kußowski)
+- refactor: Upgrade to vodozemac cryptoutils (Christian Kußowski)
+- chore: Remove unused callbacks (Christian Kußowski)
+- chore: Remove unused dependency (Christian Kußowski)
+- chore: Revert on upload progress (Christian Kußowski)
+
+## [2.0.1] 9th Sept 2025
+- fix: scheduled event list init (td)
+
+## [2.0.0] 9th Sept 2025
+
+There have been some breaking changes to the VoIP codebase. Specifically, you will have to pass your instance of the VoIP class to existing `getCallMemberships*` functions which are an extension on the Room class. 
+
+- feat: delayed and device owned state events support for group calls (td)
+- feat: allow setting keyring size (td)
+- feat: (BREAKING CHANGE) allow setting custom call timeout values, you will have to pass the voip class to a bunch of existing call related methods though (td)
+- feat: also debounce join key rotation (td)
+- fix: fix the issue that user avatar can not be loaded on windows (Eric Lin)
 - fix: reuse a deviceId if available (td)
+- refactor: (BREAKING CHANGE) you can now get the matrix eventId from CallMembership(s) (td)
 - refactor: Allow room ids to not have a domain (Christian Kußowski)
+- refactor: Clean up new dart version lints (Christian Kußowski)
+- refactor: Make signableJson type safe with type safe class (Christian Kußowski)
+- refactor: Remove dynamic in cross signing code (Christian Kußowski)
 - refactor: Restrict canChangeStateEvent, canInvite and canSendEvent to joined users (Christian Kußowski)
 - refactor: Restrict canKick canBan and canRedact to joined users (Christian Kußowski)
 - refactor: Restrict canRequestHistory to joined or archived rooms (Christian Kußowski)
+- refactor: Sync for unknown room in push helper and catch timeout exceptions (Christian Kußowski)
+
 
 ## [1.1.0] 14th July 2025
 - fix: (BREAKING) Can not logout and login again with same Client object (Christian Kußowski)

@@ -79,7 +79,7 @@ void main() async {
       expect(event.formattedText, formatted_body);
       expect(event.body, body);
       expect(event.type, EventTypes.Message);
-      expect(event.relationshipType, RelationshipTypes.reply);
+      expect(event.inReplyToEventId(), '\$1234:example.com');
       jsonObj['state_key'] = '';
       final state = Event.fromJson(jsonObj, room);
       expect(state.eventId, id);
@@ -178,8 +178,8 @@ void main() async {
       };
       event = Event.fromJson(jsonObj, room);
       expect(event.messageType, MessageTypes.Text);
-      expect(event.relationshipType, RelationshipTypes.reply);
-      expect(event.relationshipEventId, '1234');
+      expect(event.inReplyToEventId(), '1234');
+      expect(event.relationshipEventId, null);
     });
 
     test('relationship types', () async {
@@ -212,8 +212,22 @@ void main() async {
         },
       };
       event = Event.fromJson(jsonObj, room);
-      expect(event.relationshipType, RelationshipTypes.reply);
-      expect(event.relationshipEventId, 'def');
+      expect(event.inReplyToEventId(), 'def');
+      expect(event.relationshipEventId, null);
+
+      jsonObj['content']['m.relates_to'] = {
+        'rel_type': 'm.thread',
+        'event_id': '\$root',
+        'm.in_reply_to': {
+          'event_id': '\$target',
+        },
+        'is_falling_back': true,
+      };
+      event = Event.fromJson(jsonObj, room);
+      expect(event.relationshipType, RelationshipTypes.thread);
+      expect(event.inReplyToEventId(), '\$target');
+      expect(event.inReplyToEventId(includingFallback: false), null);
+      expect(event.relationshipEventId, '\$root');
     });
 
     test('redact', () async {
@@ -1551,7 +1565,7 @@ void main() async {
         },
         room,
       );
-      expect(event2.body, 'm.room.message');
+      expect(event2.body, 'Unknown message format of type "${event2.type}"');
     });
 
     group('unlocalized body reply stripping', () {
@@ -1623,8 +1637,7 @@ void main() async {
         editHtml: false,
       );
       testUnlocalizedBody(
-        // not sure we actually want m.room.message here and not an empty string
-        expectation: 'm.room.message',
+        expectation: 'Unknown message format of type "${EventTypes.Message}"',
         plaintextBody: false,
         body: '',
         formattedBody: '<b>formatted body</b>',
@@ -1635,7 +1648,7 @@ void main() async {
         editHtml: false,
       );
       testUnlocalizedBody(
-        expectation: 'm.room.message',
+        expectation: 'Unknown message format of type "${EventTypes.Message}"',
         plaintextBody: false,
         body: null,
         formattedBody: '<b>formatted body</b>',
@@ -1646,7 +1659,7 @@ void main() async {
         editHtml: false,
       );
       testUnlocalizedBody(
-        expectation: 'm.room.message',
+        expectation: 'Unknown message format of type "${EventTypes.Message}"',
         plaintextBody: false,
         body: 5,
         formattedBody: '<b>formatted body</b>',
@@ -2485,6 +2498,30 @@ void main() async {
         await room.client.dispose(closeDatabase: true);
       },
     );
+
+    test('downloadAndDecryptAttachment from server', () async {
+      final client = await getClient();
+      final event = Event(
+        room: client.rooms.first,
+        eventId: 'test',
+        originServerTs: DateTime.now(),
+        senderId: client.userID!,
+        content: {
+          'body': 'ascii.txt',
+          'filename': 'ascii.txt',
+          'info': {'mimetype': 'application/msword', 'size': 6},
+          'msgtype': 'm.file',
+          'url': 'mxc://example.org/abcd1234ascii',
+        },
+        type: EventTypes.Message,
+      );
+      final progressList = <int>[];
+      await event.downloadAndDecryptAttachment(
+        onDownloadProgress: progressList.add,
+      );
+      await client.dispose();
+      expect(progressList, [112]);
+    });
     test('downloadAndDecryptAttachment store', tags: 'olm', () async {
       final FILE_BUFF = Uint8List.fromList([0]);
       var serverHits = 0;
@@ -2950,6 +2987,29 @@ void main() async {
       final timeline =
           Timeline(room: room, chunk: TimelineChunk(events: [targetEvent]));
       expect(await event.getReplyEvent(timeline), targetEvent);
+    });
+    test('getMentions', () {
+      final event = Event.fromJson(
+        {
+          'content': {
+            'msgtype': 'text',
+            'body': 'Hello world @alice:matrix.org',
+            'm.mentions': {
+              'user_ids': ['@alice:matrix.org'],
+              'room': false,
+            },
+          },
+          'event_id': '\$143273582443PhrSn:example.org',
+          'origin_server_ts': 1432735824653,
+          'room_id': room.id,
+          'sender': '@example:example.org',
+          'type': 'm.room.message',
+          'unsigned': {'age': 1234},
+        },
+        room,
+      );
+      expect(event.mentions.userIds, ['@alice:matrix.org']);
+      expect(event.mentions.room, false);
     });
   });
 }

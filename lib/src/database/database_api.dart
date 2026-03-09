@@ -42,6 +42,7 @@ abstract class DatabaseApi {
     String? deviceName,
     String? prevBatch,
     String? olmAccount,
+    String? oidcClientId,
   );
 
   Future insertClient(
@@ -55,6 +56,7 @@ abstract class DatabaseApi {
     String? deviceName,
     String? prevBatch,
     String? olmAccount,
+    String? oidcClientId,
   );
 
   Future<List<Room>> getRoomList(Client client);
@@ -337,7 +339,7 @@ abstract class DatabaseApi {
 
   Future<void> addSeenPublicKey(String publicKey, String deviceId);
 
-  Future<String?> deviceIdSeen(userId, deviceId);
+  Future<String?> deviceIdSeen(String userId, String deviceId);
 
   Future<String?> publicKeySeen(String publicKey);
 
@@ -353,11 +355,17 @@ abstract class DatabaseApi {
 
   Future<CachedPresence?> getPresence(String userId);
 
-  Future<void> storeWellKnown(DiscoveryInformation? discoveryInformation);
+  Future<void> cacheCustomObject(String cacheKey, Map<String, Object?> object);
 
-  Future<DiscoveryInformation?> getWellKnown();
+  Future<({Map<String, Object?> content, DateTime savedAt})?>
+      getCustomCacheObject(String cacheKey);
 
   /// Deletes the whole database. The database needs to be created again after
   /// this.
   Future<void> delete();
+
+  Future<void> storeLatestReceiptState(
+    String roomId,
+    LatestReceiptState receiptState,
+  );
 }

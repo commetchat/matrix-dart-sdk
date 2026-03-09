@@ -349,7 +349,7 @@ class Room {
     final cache = _cachedDirectChatMatrixId;
     if (cache != null) {
       final roomIds = client.directChats[cache];
-      if (roomIds is List && roomIds.contains(id)) {
+      if (roomIds != null && roomIds.contains(id)) {
         return cache;
       }
     }
@@ -364,18 +364,91 @@ class Room {
     }
 
     final mxId = client.directChats.entries
-        .firstWhereOrNull((MapEntry<String, dynamic> e) {
-      final roomIds = e.value;
-      return roomIds is List<dynamic> && roomIds.contains(id);
-    })?.key;
+        .firstWhereOrNull((e) => e.value.contains(id))
+        ?.key;
     if (mxId?.isValidMatrixId == true) return _cachedDirectChatMatrixId = mxId;
     return _cachedDirectChatMatrixId = null;
   }
 
-  /// Wheither this is a direct chat or not
+  /// Whether this is a direct chat or not.
+  ///
+  /// Returns `true` if this room is marked as a direct chat in the user's
+  /// `m.direct` account data. Note that this is a user-level annotation,
+  /// not an inherent property of the room - a room with only 2 members
+  /// is NOT automatically considered a direct chat.
+  ///
+  /// To mark a room as a direct chat, use [addToDirectChat] or set
+  /// `isDirect: true` when creating the room.
   bool get isDirectChat => directChatMatrixID != null;
 
   Event? lastEvent;
+
+  /// Fetches the most recent event in the timeline from the server to have
+  /// a valid preview after receiving a limited timeline from the sync. Will
+  /// be triggered by the sync loop on demand. Multiple requests will be
+  /// combined to the same request.
+  Future<Event?> refreshLastEvent({
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    final lastEvent = _refreshingLastEvent ??= _refreshLastEvent();
+    _refreshingLastEvent = null;
+    return lastEvent;
+  }
+
+  Future<Event?>? _refreshingLastEvent;
+
+  Future<Event?> _refreshLastEvent({
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    if (membership != Membership.join) return null;
+
+    final filter = StateFilter(types: client.roomPreviewLastEvents.toList());
+    final result = await client
+        .getRoomEvents(
+          id,
+          Direction.b,
+          limit: 1,
+          filter: jsonEncode(filter.toJson()),
+        )
+        .timeout(timeout);
+    final matrixEvent = result.chunk.firstOrNull;
+    if (matrixEvent == null) {
+      if (lastEvent?.type == EventTypes.refreshingLastEvent) {
+        lastEvent = null;
+      }
+      Logs().d('No last event found for room', id);
+      return null;
+    }
+    var event = Event.fromMatrixEvent(
+      matrixEvent,
+      this,
+      status: EventStatus.synced,
+    );
+    if (event.type == EventTypes.Encrypted) {
+      final encryption = client.encryption;
+      if (encryption != null) {
+        event = await encryption.decryptRoomEvent(event);
+      }
+    }
+    lastEvent = event;
+
+    Logs().d('Refreshed last event for room', id);
+
+    // Trigger sync handling so that lastEvent gets stored and room list gets
+    // updated.
+    await _handleFakeSync(
+      SyncUpdate(
+        nextBatch: '',
+        rooms: RoomsUpdate(
+          join: {
+            id: JoinedRoomUpdate(timeline: TimelineUpdate(limited: false)),
+          },
+        ),
+      ),
+    );
+
+    return event;
+  }
 
   void setEphemeral(BasicEvent ephemeral) {
     ephemerals[ephemeral.type] = ephemeral;
@@ -411,13 +484,15 @@ class Room {
     Map<String, BasicEvent>? roomAccountData,
     RoomSummary? summary,
     this.lastEvent,
+    LatestReceiptState? receiptState,
   })  : roomAccountData = roomAccountData ?? <String, BasicEvent>{},
         summary = summary ??
             RoomSummary.fromJson({
               'm.joined_member_count': 0,
               'm.invited_member_count': 0,
               'm.heroes': [],
-            });
+            }),
+        receiptState = receiptState ?? LatestReceiptState.empty();
 
   /// The default count of how much events should be requested when requesting the
   /// history of this room.
@@ -443,8 +518,16 @@ class Room {
   String get displayname => getLocalizedDisplayname();
 
   /// When was the last event received.
-  DateTime get latestEventReceivedTime =>
-      lastEvent?.originServerTs ?? DateTime.now();
+  DateTime get latestEventReceivedTime {
+    final lastEventTime = lastEvent?.originServerTs;
+    if (lastEventTime != null) return lastEventTime;
+
+    if (membership == Membership.invite) return DateTime.now();
+    final createEvent = getState(EventTypes.RoomCreate);
+    if (createEvent is MatrixEvent) return createEvent.originServerTs;
+
+    return DateTime(0);
+  }
 
   /// Call the Matrix API to change the name of this room. Returns the event ID of the
   /// new m.room.name event.
@@ -542,10 +625,7 @@ class Room {
     return readAtMilliseconds < lastEvent.originServerTs.millisecondsSinceEpoch;
   }
 
-  LatestReceiptState get receiptState => LatestReceiptState.fromJson(
-        roomAccountData[LatestReceiptState.eventType]?.content ??
-            <String, dynamic>{},
-      );
+  LatestReceiptState receiptState;
 
   /// Returns true if this room is unread. To check if there are new messages
   /// in muted rooms, use [hasNewMessages].
@@ -635,6 +715,13 @@ class Room {
     String? threadRootEventId,
     String? threadLastEventId,
     StringBuffer? commandStdout,
+    bool addMentions = true,
+
+    /// Displays an event in the timeline with the transaction ID as the event
+    /// ID and a status of SENDING, SENT or ERROR until it gets replaced by
+    /// the sync event. Using this can display a different sort order of events
+    /// as the sync event does replace but not relocate the pending event.
+    bool displayPendingEvent = true,
   }) {
     if (parseCommands) {
       return client.parseAndRunCommand(
@@ -652,6 +739,41 @@ class Room {
       'msgtype': msgtype,
       'body': message,
     };
+
+    if (addMentions) {
+      var potentialMentions = message
+          .split('@')
+          .map(
+            (text) => text.startsWith('[')
+                ? '@${text.split(']').first}]'
+                : '@${text.split(RegExp(r'\s+')).first}',
+          )
+          .toList()
+        ..removeAt(0);
+
+      final hasRoomMention = potentialMentions.remove('@room');
+
+      potentialMentions = potentialMentions
+          .map(
+            (mention) =>
+                mention.isValidMatrixId ? mention : getMention(mention),
+          )
+          .nonNulls
+          .toSet() // Deduplicate
+          .toList()
+        ..remove(client.userID); // We should never mention ourself.
+
+      // https://spec.matrix.org/v1.7/client-server-api/#mentioning-the-replied-to-user
+      if (inReplyTo != null) potentialMentions.add(inReplyTo.senderId);
+
+      if (hasRoomMention || potentialMentions.isNotEmpty) {
+        event['m.mentions'] = {
+          if (hasRoomMention) 'room': true,
+          if (potentialMentions.isNotEmpty) 'user_ids': potentialMentions,
+        };
+      }
+    }
+
     if (parseMarkdown) {
       final html = markdown(
         event['body'],
@@ -673,6 +795,7 @@ class Room {
       editEventId: editEventId,
       threadRootEventId: threadRootEventId,
       threadLastEventId: threadLastEventId,
+      displayPendingEvent: displayPendingEvent,
     );
   }
 
@@ -727,6 +850,12 @@ class Room {
     Map<String, dynamic>? extraContent,
     String? threadRootEventId,
     String? threadLastEventId,
+
+    /// Displays an event in the timeline with the transaction ID as the event
+    /// ID and a status of SENDING, SENT or ERROR until it gets replaced by
+    /// the sync event. Using this can display a different sort order of events
+    /// as the sync event does replace but not relocate the pending event.
+    bool displayPendingEvent = true,
   }) async {
     txid ??= client.generateUniqueTransactionId();
     sendingFilePlaceholders[txid] = file;
@@ -924,6 +1053,7 @@ class Room {
       editEventId: editEventId,
       threadRootEventId: threadRootEventId,
       threadLastEventId: threadLastEventId,
+      displayPendingEvent: displayPendingEvent,
     );
     sendingFilePlaceholders.remove(txid);
     sendingFileThumbnails.remove(txid);
@@ -1008,6 +1138,12 @@ class Room {
     String? editEventId,
     String? threadRootEventId,
     String? threadLastEventId,
+
+    /// Displays an event in the timeline with the transaction ID as the event
+    /// ID and a status of SENDING, SENT or ERROR until it gets replaced by
+    /// the sync event. Using this can display a different sort order of events
+    /// as the sync event does replace but not relocate the pending event.
+    bool displayPendingEvent = true,
   }) async {
     // Create new transaction id
     final String messageID;
@@ -1112,7 +1248,7 @@ class Room {
     // we need to add the transaction ID to the set of events that are currently queued to be sent
     // even before the fake sync is called, so that the event constructor can check if the event is in the sending state
     sendingQueueEventsByTxId.add(messageID);
-    await _handleFakeSync(syncUpdate);
+    if (displayPendingEvent) await _handleFakeSync(syncUpdate);
     final completer = Completer();
     sendingQueue.add(completer);
     while (sendingQueue.first != completer) {
@@ -1146,7 +1282,7 @@ class Room {
           Logs().w('Problem while sending message', e, s);
           syncUpdate.rooms!.join!.values.first.timeline!.events!.first
               .unsigned![messageSendingStatusKey] = EventStatus.error.intValue;
-          await _handleFakeSync(syncUpdate);
+          if (displayPendingEvent) await _handleFakeSync(syncUpdate);
           completer.complete();
           sendingQueue.remove(completer);
           sendingQueueEventsByTxId.remove(messageID);
@@ -1165,7 +1301,7 @@ class Room {
     syncUpdate.rooms!.join!.values.first.timeline!.events!.first
         .unsigned![messageSendingStatusKey] = EventStatus.sent.intValue;
     syncUpdate.rooms!.join!.values.first.timeline!.events!.first.eventId = res;
-    await _handleFakeSync(syncUpdate);
+    if (displayPendingEvent) await _handleFakeSync(syncUpdate);
     completer.complete();
     sendingQueue.remove(completer);
     sendingQueueEventsByTxId.remove(messageID);
@@ -1388,21 +1524,21 @@ class Room {
 
   /// Sets this room as a direct chat for this user if not already.
   Future<void> addToDirectChat(String userID) async {
-    final directChats = client.directChats;
-    if (directChats[userID] is List) {
-      if (!directChats[userID].contains(id)) {
-        directChats[userID].add(id);
-      } else {
-        return;
-      } // Is already in direct chats
-    } else {
-      directChats[userID] = [id];
+    final dmRooms = List<String>.from(client.directChats[userID] ?? []);
+    if (dmRooms.contains(id)) {
+      Logs().d('Already a direct chat.');
+      return;
     }
+
+    dmRooms.add(id);
 
     await client.setAccountData(
       client.userID!,
       'm.direct',
-      directChats,
+      {
+        ...client.directChats,
+        userID: dmRooms,
+      },
     );
     return;
   }
@@ -1837,8 +1973,18 @@ class Room {
           if (!ignoreErrors) {
             rethrow;
           } else {
-            Logs()
-                .w('Unable to request the profile $mxID from the server', e, s);
+            if (e is MatrixException && e.errcode == 'M_NOT_FOUND') {
+              Logs().v(
+                'Unable to request the profile $mxID from the server (user not found)',
+                e,
+              );
+            } else {
+              Logs().w(
+                'Unable to request the profile $mxID from the server',
+                e,
+                s,
+              );
+            }
           }
         }
       }
@@ -1991,12 +2137,15 @@ class Room {
     return (powerLevelState is Map<String, int>) ? powerLevelState : null;
   }
 
-  /// Uploads a new user avatar for this room. Returns the event ID of the new
-  /// m.room.avatar event. Leave empty to remove the current avatar.
+  /// Uploads a new avatar for this room. Returns the event ID of the new
+  /// m.room.avatar event. Insert null to remove the current avatar.
   Future<String> setAvatar(MatrixFile? file) async {
     final uploadResp = file == null
         ? null
-        : await client.uploadContent(file.bytes, filename: file.name);
+        : await client.uploadContent(
+            file.bytes,
+            filename: file.name,
+          );
     return await client.setRoomStateWithKey(
       id,
       EventTypes.RoomAvatar,
@@ -2303,18 +2452,30 @@ class Room {
     JoinRules joinRules, {
     /// For restricted rooms, the id of the room where a user needs to be member.
     /// Learn more at https://spec.matrix.org/latest/client-server-api/#restricted-rooms
+    List<String>? allowConditionRoomIds,
+    @Deprecated('Use allowConditionRoomIds instead!')
     String? allowConditionRoomId,
   }) async {
+    if (allowConditionRoomId != null) {
+      allowConditionRoomIds ??= [];
+      allowConditionRoomIds.add(allowConditionRoomId);
+    }
+
     await client.setRoomStateWithKey(
       id,
       EventTypes.RoomJoinRules,
       '',
       {
-        'join_rule': joinRules.toString().replaceAll('JoinRules.', ''),
-        if (allowConditionRoomId != null)
-          'allow': [
-            {'room_id': allowConditionRoomId, 'type': 'm.room_membership'},
-          ],
+        'join_rule': joinRules.text,
+        if (allowConditionRoomIds != null && allowConditionRoomIds.isNotEmpty)
+          'allow': allowConditionRoomIds
+              .map(
+                (allowConditionRoomId) => {
+                  'room_id': allowConditionRoomId,
+                  'type': 'm.room_membership',
+                },
+              )
+              .toList(),
       },
     );
     return;
@@ -2556,10 +2717,115 @@ class Room {
     );
   }
 
-  /// Remove a child from this space by setting the `via` to an empty list.
-  Future<void> removeSpaceChild(String roomId) => !isSpace
-      ? throw Exception('Room is not a space!')
-      : setSpaceChild(roomId, via: const []);
+  /// Remove a child from this space by removing the space child and optionally
+  /// space parent state events.
+  Future<void> removeSpaceChild(String roomId) async {
+    if (!isSpace) throw Exception('Room is not a space!');
+
+    await client.setRoomStateWithKey(id, EventTypes.SpaceChild, roomId, {});
+
+    // Optionally remove the space parent state event in the former space child.
+    if (client
+            .getRoomById(roomId)
+            ?.canChangeStateEvent(EventTypes.SpaceParent) ==
+        true) {
+      await client.setRoomStateWithKey(roomId, EventTypes.SpaceParent, id, {});
+    }
+  }
+
+  /// Performs a search for `searchTerm` or a more complex `searchFunc()`.
+  /// Be aware that the entire room history (limited by `limit`) will be
+  /// downloaded, decrypted and then checked which needs a lot of time. If
+  /// there are events left in the timeline you get a `nextBatch` back which
+  /// you can use for the next iteration.
+  Future<
+      ({
+        List<Event> events,
+        String? nextBatch,
+        DateTime? searchedUntil,
+      })> searchEvents({
+    String? searchTerm,
+    bool Function(Event)? searchFunc,
+    String? nextBatch,
+
+    /// The amount of events requested from the server in one call. Also used
+    /// to chunk database requests.
+    int limit = 1000,
+
+    /// Other event types are not requested from the server.
+    Set<String> includeEventTypes = const {
+      EventTypes.Message,
+      EventTypes.Encrypted,
+    },
+  }) async {
+    assert(searchTerm != null || searchFunc != null);
+
+    searchFunc ??= (event) => event.body.toLowerCase().contains(
+          searchTerm!.toLowerCase(),
+        );
+    final foundEvents = <Event>[];
+
+    // We first check out what we have in database:
+    if (nextBatch == null) {
+      List<Event> databaseEvents;
+      var start = 0;
+      var timelineComplete = false;
+      do {
+        databaseEvents = await client.database
+            .getEventList(this, start: start, limit: limit);
+        start += limit;
+        foundEvents.addAll(databaseEvents.where(searchFunc));
+        if (databaseEvents.lastOrNull?.type == EventTypes.RoomCreate) {
+          timelineComplete = true;
+          break;
+        }
+      } while (databaseEvents.isNotEmpty);
+
+      if (timelineComplete) {
+        // We have the complete timeline locally, so we stop here:
+        return (
+          events: foundEvents,
+          nextBatch: null,
+          searchedUntil: databaseEvents.lastOrNull?.originServerTs,
+        );
+      }
+    }
+
+    final filter = StateFilter(types: includeEventTypes.toList());
+    nextBatch ??= prev_batch;
+    // Request `limit` events from server, decrypt and filter them and return.
+    final historyResult = await client.getRoomEvents(
+      id,
+      Direction.b,
+      from: nextBatch ?? prev_batch,
+      limit: limit,
+      filter: jsonEncode(filter.toJson()),
+    );
+    final events = historyResult.chunk
+        .map((matrixEvent) => Event.fromMatrixEvent(matrixEvent, this))
+        .toList();
+
+    // Decrypt all events one after another:
+    for (final (index, event) in events.indexed) {
+      if (event.type == EventTypes.Encrypted) {
+        final decrypted = await client.encryption?.decryptRoomEvent(
+          event,
+          store: false,
+          updateType: EventUpdateType.history,
+        );
+        if (decrypted != null && decrypted.type != EventTypes.Encrypted) {
+          events[index] = decrypted;
+        }
+      }
+    }
+    events.removeWhere((event) => event.type == EventTypes.Encrypted);
+    foundEvents.addAll(events.where(searchFunc));
+    return (
+      events: foundEvents,
+      nextBatch: historyResult.end,
+      searchedUntil: historyResult.chunk.lastOrNull?.originServerTs,
+    );
+  }
 
   @override
   bool operator ==(Object other) => (other is Room && other.id == id);

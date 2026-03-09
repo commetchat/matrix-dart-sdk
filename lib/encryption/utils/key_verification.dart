@@ -21,7 +21,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:canonical_json/canonical_json.dart';
-import 'package:crypto/crypto.dart' as crypto;
 import 'package:typed_data/typed_data.dart';
 import 'package:vodozemac/vodozemac.dart' as vod;
 
@@ -748,9 +747,10 @@ class KeyVerification {
       // no need to request cache, we already have it
       return;
     }
-    // ignore: unawaited_futures
-    encryption.ssss
-        .maybeRequestAll(_verifiedDevices.whereType<DeviceKeys>().toList());
+    unawaited(
+      encryption.ssss
+          .maybeRequestAll(_verifiedDevices.whereType<DeviceKeys>().toList()),
+    );
     if (requestInterval.length <= i) {
       return;
     }
@@ -1558,8 +1558,8 @@ class _KeyVerificationMethodSas extends _KeyVerificationMethod {
   Future<String> _makeCommitment(String pubKey, String canonicalJson) async {
     if (hash == 'sha256') {
       final bytes = utf8.encoder.convert(pubKey + canonicalJson);
-      final digest = crypto.sha256.convert(bytes);
-      return encodeBase64Unpadded(digest.bytes);
+      final digest = vod.CryptoUtils.sha256(input: bytes);
+      return encodeBase64Unpadded(digest);
     }
     throw Exception('Unknown hash method');
   }

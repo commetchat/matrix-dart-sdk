@@ -16,22 +16,25 @@
  *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:collection/collection.dart';
 import 'package:html/parser.dart';
+import 'package:http/http.dart' as http;
 import 'package:mime/mime.dart';
 
 import 'package:matrix/matrix.dart';
 import 'package:matrix/src/utils/file_send_request_credentials.dart';
 import 'package:matrix/src/utils/html_to_text.dart';
 import 'package:matrix/src/utils/markdown.dart';
+import 'package:matrix/src/utils/multipart_request_progress.dart';
 
 abstract class RelationshipTypes {
-  static const String reply = 'm.in_reply_to';
   static const String edit = 'm.replace';
   static const String reaction = 'm.annotation';
+  static const String reference = 'm.reference';
   static const String thread = 'm.thread';
 }
 
@@ -322,7 +325,7 @@ class Event extends MatrixEvent {
   String get body {
     if (redacted) return 'Redacted';
     if (text != '') return text;
-    return type;
+    return 'Unknown message format of type "$type"';
   }
 
   /// Use this to get a plain-text representation of the event, stripping things
@@ -486,31 +489,13 @@ class Event extends MatrixEvent {
   /// event fallback if the relationship type is `m.thread`.
   /// https://spec.matrix.org/v1.14/client-server-api/#fallback-for-unthreaded-clients
   Future<Event?> getReplyEvent(Timeline timeline) async {
-    switch (relationshipType) {
-      case RelationshipTypes.reply:
-        final relationshipEventId = this.relationshipEventId;
-        return relationshipEventId == null
-            ? null
-            : await timeline.getEventById(relationshipEventId);
-
-      case RelationshipTypes.thread:
-        final relationshipContent =
-            content.tryGetMap<String, Object?>('m.relates_to');
-        if (relationshipContent == null) return null;
-        final String? relationshipEventId;
-        if (relationshipContent.tryGet<bool>('is_falling_back') == true) {
-          relationshipEventId = relationshipContent
-              .tryGetMap<String, Object?>('m.in_reply_to')
-              ?.tryGet<String>('event_id');
-        } else {
-          relationshipEventId = this.relationshipEventId;
-        }
-        return relationshipEventId == null
-            ? null
-            : await timeline.getEventById(relationshipEventId);
-      default:
-        return null;
-    }
+    final relationshipEventId = content
+        .tryGetMap<String, Object?>('m.relates_to')
+        ?.tryGetMap<String, Object?>('m.in_reply_to')
+        ?.tryGet<String>('event_id');
+    return relationshipEventId == null
+        ? null
+        : await timeline.getEventById(relationshipEventId);
   }
 
   /// If this event is encrypted and the decryption was not successful because
@@ -534,13 +519,13 @@ class Event extends MatrixEvent {
   }
 
   /// Gets the info map of file events, or a blank map if none present
-  Map get infoMap =>
+  Map<String, Object?> get infoMap =>
       content.tryGetMap<String, Object?>('info') ?? <String, Object?>{};
 
   /// Gets the thumbnail info map of file events, or a blank map if nonepresent
-  Map get thumbnailInfoMap => infoMap['thumbnail_info'] is Map
-      ? infoMap['thumbnail_info']
-      : <String, dynamic>{};
+  Map<String, Object?> get thumbnailInfoMap =>
+      infoMap.tryGetMap<String, Object?>('thumbnail_info') ??
+      <String, Object?>{};
 
   /// Returns if a file event has an attachment
   bool get hasAttachment => content['url'] is String || content['file'] is Map;
@@ -556,20 +541,22 @@ class Event extends MatrixEvent {
   bool get isThumbnailEncrypted => infoMap['thumbnail_file'] is Map;
 
   /// Gets the mimetype of the attachment of a file event, or a blank string if not present
-  String get attachmentMimetype => infoMap['mimetype'] is String
-      ? infoMap['mimetype'].toLowerCase()
-      : (content
-              .tryGetMap<String, Object?>('file')
-              ?.tryGet<String>('mimetype') ??
-          '');
+  String get attachmentMimetype =>
+      infoMap.tryGet<String>('mimetype')?.toLowerCase() ??
+      content
+          .tryGetMap<String, Object?>('file')
+          ?.tryGet<String>('mimetype')
+          ?.toLowerCase() ??
+      '';
 
   /// Gets the mimetype of the thumbnail of a file event, or a blank string if not present
-  String get thumbnailMimetype => thumbnailInfoMap['mimetype'] is String
-      ? thumbnailInfoMap['mimetype'].toLowerCase()
-      : (infoMap['thumbnail_file'] is Map &&
-              infoMap['thumbnail_file']['mimetype'] is String
-          ? infoMap['thumbnail_file']['mimetype']
-          : '');
+  String get thumbnailMimetype =>
+      thumbnailInfoMap.tryGet<String>('mimetype')?.toLowerCase() ??
+      infoMap
+          .tryGetMap<String, Object?>('thumbnail_file')
+          ?.tryGet<String>('mimetype')
+          ?.toLowerCase() ??
+      '';
 
   /// Gets the underlying mxc url of an attachment of a file event, or null if not present
   Uri? get attachmentMxcUrl {
@@ -580,19 +567,23 @@ class Event extends MatrixEvent {
   }
 
   /// Gets the underlying mxc url of a thumbnail of a file event, or null if not present
-  Uri? get thumbnailMxcUrl {
-    final url = isThumbnailEncrypted
-        ? infoMap['thumbnail_file']['url']
-        : infoMap['thumbnail_url'];
-    return url is String ? Uri.tryParse(url) : null;
-  }
+  Uri? get thumbnailMxcUrl => Uri.tryParse(
+        isThumbnailEncrypted
+            ? (infoMap
+                    .tryGetMap<String, Object?>('thumbnail_file')
+                    ?.tryGet<String>('url') ??
+                '')
+            : (infoMap.tryGet<String>('thumbnail_url') ?? ''),
+      );
 
   /// Gets the mxc url of an attachment/thumbnail of a file event, taking sizes into account, or null if not present
   Uri? attachmentOrThumbnailMxcUrl({bool getThumbnail = false}) {
+    final fileSize = infoMap.tryGet<int>('size');
+    final thumbnailFileSize = thumbnailInfoMap.tryGet<int>('size');
     if (getThumbnail &&
-        infoMap['size'] is int &&
-        thumbnailInfoMap['size'] is int &&
-        infoMap['size'] <= thumbnailInfoMap['size']) {
+        fileSize != null &&
+        thumbnailFileSize != null &&
+        fileSize <= thumbnailFileSize) {
       getThumbnail = false;
     }
     if (getThumbnail && !hasThumbnail) {
@@ -635,13 +626,17 @@ class Event extends MatrixEvent {
       return null; // can't fetch from thumbnail
     }
     final thisInfoMap = useThumbnailMxcUrl ? thumbnailInfoMap : infoMap;
-    final thisMxcUrl =
-        useThumbnailMxcUrl ? infoMap['thumbnail_url'] : content['url'];
+    final thisMxcUrl = useThumbnailMxcUrl
+        ? infoMap.tryGet<String>('thumbnail_url')
+        : content.tryGet<String>('url');
+    if (thisMxcUrl == null) return null;
+
     // if we have as method scale, we can return safely the original image, should it be small enough
+    final thisInfoMapSize = thisInfoMap.tryGet<int>('size');
     if (getThumbnail &&
         method == ThumbnailMethod.scale &&
-        thisInfoMap['size'] is int &&
-        thisInfoMap['size'] < minNoThumbSize) {
+        thisInfoMapSize != null &&
+        thisInfoMapSize < minNoThumbSize) {
       getThumbnail = false;
     }
     // now generate the actual URLs
@@ -690,13 +685,16 @@ class Event extends MatrixEvent {
       return null; // can't fetch from thumbnail
     }
     final thisInfoMap = useThumbnailMxcUrl ? thumbnailInfoMap : infoMap;
-    final thisMxcUrl =
-        useThumbnailMxcUrl ? infoMap['thumbnail_url'] : content['url'];
+    final thisMxcUrl = useThumbnailMxcUrl
+        ? infoMap.tryGet<String>('thumbnail_url')
+        : content.tryGet<String>('url');
+    if (thisMxcUrl == null) return null;
     // if we have as method scale, we can return safely the original image, should it be small enough
+    final thisInfoMapSize = thisInfoMap.tryGet<int>('size');
     if (getThumbnail &&
         method == ThumbnailMethod.scale &&
-        thisInfoMap['size'] is int &&
-        thisInfoMap['size'] < minNoThumbSize) {
+        thisInfoMapSize != null &&
+        thisInfoMapSize < minNoThumbSize) {
       getThumbnail = false;
     }
     // now generate the actual URLs
@@ -727,8 +725,9 @@ class Event extends MatrixEvent {
     final thisInfoMap = getThumbnail ? thumbnailInfoMap : infoMap;
     final database = room.client.database;
 
-    final storeable = thisInfoMap['size'] is int &&
-        thisInfoMap['size'] <= database.maxFileSize;
+    final thisInfoMapSize = thisInfoMap.tryGet<int>('size');
+    final storeable =
+        thisInfoMapSize != null && thisInfoMapSize <= database.maxFileSize;
 
     Uint8List? uint8list;
     if (storeable) {
@@ -747,6 +746,10 @@ class Event extends MatrixEvent {
     bool getThumbnail = false,
     Future<Uint8List> Function(Uri)? downloadCallback,
     bool fromLocalStoreOnly = false,
+
+    /// Callback which gets triggered on progress containing the amount of
+    /// downloaded bytes.
+    void Function(int)? onDownloadProgress,
   }) async {
     if (![EventTypes.Message, EventTypes.Sticker].contains(type)) {
       throw ("This event has the type '$type' and so it can't contain an attachment.");
@@ -769,8 +772,9 @@ class Event extends MatrixEvent {
 
     // Is this file storeable?
     final thisInfoMap = getThumbnail ? thumbnailInfoMap : infoMap;
-    var storeable = thisInfoMap['size'] is int &&
-        thisInfoMap['size'] <= database.maxFileSize;
+    final thisInfoMapSize = thisInfoMap.tryGet<int>('size');
+    var storeable =
+        thisInfoMapSize != null && thisInfoMapSize <= database.maxFileSize;
 
     Uint8List? uint8list;
     if (storeable) {
@@ -781,11 +785,14 @@ class Event extends MatrixEvent {
     final canDownloadFileFromServer = uint8list == null && !fromLocalStoreOnly;
     if (canDownloadFileFromServer) {
       final httpClient = room.client.httpClient;
-      downloadCallback ??= (Uri url) async => (await httpClient.get(
-            url,
-            headers: {'authorization': 'Bearer ${room.client.accessToken}'},
-          ))
-              .bodyBytes;
+      downloadCallback ??= (Uri url) async {
+        final request = http.Request('GET', url);
+        request.headers['authorization'] = 'Bearer ${room.client.accessToken}';
+
+        final response = await httpClient.send(request);
+
+        return await response.stream.toBytesWithProgress(onDownloadProgress);
+      };
       uint8list =
           await downloadCallback(await mxcUrl.getDownloadUri(room.client));
       storeable = storeable && uint8list.lengthInBytes < database.maxFileSize;
@@ -802,16 +809,24 @@ class Event extends MatrixEvent {
 
     // Decrypt the file
     if (isEncrypted) {
-      final fileMap =
-          getThumbnail ? infoMap['thumbnail_file'] : content['file'];
-      if (!fileMap['key']['key_ops'].contains('decrypt')) {
+      final fileMap = getThumbnail
+          ? infoMap.tryGetMap<String, Object?>('thumbnail_file')
+          : content.tryGetMap<String, Object?>('file');
+      if (fileMap == null) throw ('No encrypted file info found');
+      if (fileMap
+              .tryGetMap<String, Object?>('key')
+              ?.tryGetList<String>('key_ops')
+              ?.contains('decrypt') !=
+          true) {
         throw ("Missing 'decrypt' in 'key_ops'.");
       }
       final encryptedFile = EncryptedFile(
         data: uint8list,
-        iv: fileMap['iv'],
-        k: fileMap['key']['k'],
-        sha256: fileMap['hashes']['sha256'],
+        iv: fileMap.tryGet<String>('iv')!,
+        k: fileMap.tryGetMap<String, Object?>('key')!.tryGet<String>('k')!,
+        sha256: fileMap
+            .tryGetMap<String, Object?>('hashes')!
+            .tryGet<String>('sha256')!,
       );
       uint8list =
           await room.client.nativeImplementations.decryptFile(encryptedFile);
@@ -1010,30 +1025,30 @@ class Event extends MatrixEvent {
     return transactionId == search;
   }
 
-  /// Get the relationship type of an event. `null` if there is none
-  String? get relationshipType {
-    final mRelatesTo = content.tryGetMap<String, Object?>('m.relates_to');
-    if (mRelatesTo == null) {
-      return null;
-    }
-    final relType = mRelatesTo.tryGet<String>('rel_type');
-    if (relType == RelationshipTypes.thread) {
-      return RelationshipTypes.thread;
-    }
+  /// Get the relationship type of an event. `null` if there is none.
+  String? get relationshipType => content
+      .tryGetMap<String, Object?>('m.relates_to')
+      ?.tryGet<String>('rel_type');
 
-    if (mRelatesTo.containsKey('m.in_reply_to')) {
-      return RelationshipTypes.reply;
-    }
-    return relType;
-  }
+  /// Get the event ID that this relationship will reference and `null` if there
+  /// is none. This could for example be the thread root, the original event for
+  /// an edit or the event, this is an reaction for. For replies please use
+  /// `Event.inReplyToEventId()` instead!
+  String? get relationshipEventId => content
+      .tryGetMap<String, Object?>('m.relates_to')
+      ?.tryGet<String>('event_id');
 
-  /// Get the event ID that this relationship will reference. `null` if there is none
-  String? get relationshipEventId {
-    final relatesToMap = content.tryGetMap<String, Object?>('m.relates_to');
-    return relatesToMap?.tryGet<String>('event_id') ??
-        relatesToMap
-            ?.tryGetMap<String, Object?>('m.in_reply_to')
-            ?.tryGet<String>('event_id');
+  /// If this event is in reply to another event, this returns the event ID or
+  /// null if this event is not a reply.
+  String? inReplyToEventId({bool includingFallback = true}) {
+    final isFallback = content
+        .tryGetMap<String, Object?>('m.relates_to')
+        ?.tryGet<bool>('is_falling_back');
+    if (isFallback == true && !includingFallback) return null;
+    return content
+        .tryGetMap<String, Object?>('m.relates_to')
+        ?.tryGetMap<String, Object?>('m.in_reply_to')
+        ?.tryGet<String>('event_id');
   }
 
   /// Get whether this event has aggregated events from a certain [type]
@@ -1178,6 +1193,17 @@ class Event extends MatrixEvent {
     if (status == null) return null;
     return FileSendingStatus.values.singleWhereOrNull(
       (fileSendingStatus) => fileSendingStatus.name == status,
+    );
+  }
+
+  /// Returns the mentioned userIds and whether the event includes an @room
+  /// mention. This is only determined by the `m.mention` object in the event
+  /// content.
+  ({List<String> userIds, bool room}) get mentions {
+    final mentionsMap = content.tryGetMap<String, Object?>('m.mentions');
+    return (
+      userIds: mentionsMap?.tryGetList<String>('user_ids') ?? [],
+      room: mentionsMap?.tryGet<bool>('room') ?? false,
     );
   }
 }
