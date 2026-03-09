@@ -295,6 +295,8 @@ void main() {
         ),
       );
       expect(room.hasNewMessages, true);
+      expect(room.isUnreadOrInvited, true);
+      room.notificationCount = room.highlightCount = 0;
       expect(room.isUnreadOrInvited, false);
       expect(room.lastEvent?.body, 'cd');
       await updateLastEvent(
@@ -876,9 +878,84 @@ void main() {
       await room.addToDirectChat('Testname');
     });
 
+    test('isDirectChat', () async {
+      // Room !726s6s6q:example.com is in m.direct with @bob:example.com
+      final dmRoom = matrix.getRoomById('!726s6s6q:example.com');
+      expect(dmRoom, isNotNull);
+      expect(dmRoom!.isDirectChat, true);
+      expect(dmRoom.directChatMatrixID, '@bob:example.com');
+
+      // Room !calls:example.com is NOT in m.direct
+      final nonDmRoom = matrix.getRoomById('!calls:example.com');
+      expect(nonDmRoom, isNotNull);
+      expect(nonDmRoom!.isDirectChat, false);
+      expect(nonDmRoom.directChatMatrixID, isNull);
+
+      // Simulate m.direct update via sync - add nonDmRoom as direct chat
+      await matrix.handleSync(
+        SyncUpdate.fromJson(
+          jsonDecode('''
+          {
+            "next_batch": "sync_dc1",
+            "account_data": {
+              "events": [{
+                "type": "m.direct",
+                "content": {"@alice:example.com": ["!calls:example.com"]}
+              }]
+            }
+          }
+        '''),
+        ),
+      );
+      expect(nonDmRoom.isDirectChat, true);
+      expect(nonDmRoom.directChatMatrixID, '@alice:example.com');
+
+      // Simulate m.direct update - remove room from direct chats
+      await matrix.handleSync(
+        SyncUpdate.fromJson(
+          jsonDecode('''
+          {
+            "next_batch": "sync_dc2",
+            "account_data": {
+              "events": [{
+                "type": "m.direct",
+                "content": {}
+              }]
+            }
+          }
+        '''),
+        ),
+      );
+      expect(nonDmRoom.isDirectChat, false);
+      expect(nonDmRoom.directChatMatrixID, isNull);
+    });
+
     test('getTimeline', () async {
       final timeline = await room.getTimeline();
       expect(timeline.events.length, 17);
+    });
+
+    test('Refresh last event', () async {
+      expect(room.lastEvent?.eventId, '12');
+      final lastEventUpdate =
+          room.client.onSync.stream.firstWhere((u) => u.nextBatch.isEmpty);
+      await room.client.handleSync(
+        SyncUpdate(
+          nextBatch: 'abcd',
+          rooms: RoomsUpdate(
+            join: {
+              room.id: JoinedRoomUpdate(
+                timeline: TimelineUpdate(
+                  events: [],
+                  limited: true,
+                ),
+              ),
+            },
+          ),
+        ),
+      );
+      await lastEventUpdate;
+      expect(room.lastEvent?.eventId, '3143273582443PhrSn:example.org');
     });
 
     test('isFederated', () {
@@ -1013,6 +1090,36 @@ void main() {
       });
     });
 
+    test('sendEvent with room mention', () async {
+      FakeMatrixApi.calledEndpoints.clear();
+      final resp = await room.sendTextEvent(
+        'Hello world @room',
+        txid: 'testtxid',
+        addMentions: true,
+      );
+      expect(resp?.startsWith('\$event'), true);
+      final entry = FakeMatrixApi.calledEndpoints.entries
+          .firstWhere((p) => p.key.contains('/send/m.room.message/'));
+      final content = json.decode(entry.value.first);
+      expect(content['m.mentions'], {'room': true});
+    });
+
+    test('sendEvent with user mention', () async {
+      FakeMatrixApi.calledEndpoints.clear();
+      final resp = await room.sendTextEvent(
+        'Hello world @[Alice Margatroid]',
+        addMentions: true,
+        txid: 'testtxid',
+      );
+      expect(resp?.startsWith('\$event'), true);
+      final entry = FakeMatrixApi.calledEndpoints.entries
+          .firstWhere((p) => p.key.contains('/send/m.room.message/'));
+      final content = json.decode(entry.value.first);
+      expect(content['m.mentions'], {
+        'user_ids': ['@alice:matrix.org'],
+      });
+    });
+
     test('send edit', () async {
       FakeMatrixApi.calledEndpoints.clear();
       final dynamic resp = await room.sendTextEvent(
@@ -1064,6 +1171,9 @@ void main() {
       expect(content, {
         'body': '> <@alice:example.org> Blah\n\nHello world',
         'msgtype': 'm.text',
+        'm.mentions': {
+          'user_ids': ['@alice:example.org'],
+        },
         'format': 'org.matrix.custom.html',
         'formatted_body':
             '<mx-reply><blockquote><a href="https://matrix.to/#/!localpart:server.abc/\$replyEvent">In reply to</a> <a href="https://matrix.to/#/@alice:example.org">@alice:example.org</a><br>Blah</blockquote></mx-reply>Hello world',
@@ -1100,6 +1210,9 @@ void main() {
         'body':
             '> <@alice:example.org> <b>Blah</b>\n> beep\n\nHello world\nfox',
         'msgtype': 'm.text',
+        'm.mentions': {
+          'user_ids': ['@alice:example.org'],
+        },
         'format': 'org.matrix.custom.html',
         'formatted_body':
             '<mx-reply><blockquote><a href="https://matrix.to/#/!localpart:server.abc/\$replyEvent">In reply to</a> <a href="https://matrix.to/#/@alice:example.org">@alice:example.org</a><br>&lt;b&gt;Blah&lt;&#47;b&gt;<br>beep</blockquote></mx-reply>Hello world<br/>fox',
@@ -1137,6 +1250,9 @@ void main() {
       expect(content, {
         'body': '> <@alice:example.org> plaintext meow\n\nHello world',
         'msgtype': 'm.text',
+        'm.mentions': {
+          'user_ids': ['@alice:example.org'],
+        },
         'format': 'org.matrix.custom.html',
         'formatted_body':
             '<mx-reply><blockquote><a href="https://matrix.to/#/!localpart:server.abc/\$replyEvent">In reply to</a> <a href="https://matrix.to/#/@alice:example.org">@alice:example.org</a><br>meow</blockquote></mx-reply>Hello world',
@@ -1172,6 +1288,9 @@ void main() {
       expect(content, {
         'body': '> <@alice:example.org> Hey @\u{200b}room\n\nHello world',
         'msgtype': 'm.text',
+        'm.mentions': {
+          'user_ids': ['@alice:example.org'],
+        },
         'format': 'org.matrix.custom.html',
         'formatted_body':
             '<mx-reply><blockquote><a href="https://matrix.to/#/!localpart:server.abc/\$replyEvent">In reply to</a> <a href="https://matrix.to/#/@alice:example.org">@alice:example.org</a><br>Hey @room</blockquote></mx-reply>Hello world',
@@ -1189,6 +1308,9 @@ void main() {
           'content': {
             'body': '> <@alice:example.org> Hey\n\nHello world',
             'msgtype': 'm.text',
+            'm.mentions': {
+              'user_ids': ['@alice:example.org'],
+            },
             'format': 'org.matrix.custom.html',
             'formatted_body':
                 '<mx-reply><blockquote><a href="https://matrix.to/#/!localpart:server.abc/\$replyEvent">In reply to</a> <a href="https://matrix.to/#/@alice:example.org">@alice:example.org</a><br>Hey</blockquote></mx-reply>Hello world',
@@ -1213,6 +1335,9 @@ void main() {
       expect(content, {
         'body': '> <@alice:example.org> Hello world\n\nFox',
         'msgtype': 'm.text',
+        'm.mentions': {
+          'user_ids': ['@alice:example.org'],
+        },
         'format': 'org.matrix.custom.html',
         'formatted_body':
             '<mx-reply><blockquote><a href="https://matrix.to/#/!localpart:server.abc/\$replyEvent">In reply to</a> <a href="https://matrix.to/#/@alice:example.org">@alice:example.org</a><br>Hello world</blockquote></mx-reply>Fox',
@@ -1271,7 +1396,7 @@ void main() {
     test('sendFileEvent', () async {
       final testFile = MatrixFile(bytes: Uint8List(0), name: 'file.jpeg');
       final resp = await room.sendFileEvent(testFile, txid: 'testtxid');
-      expect(resp.toString(), '\$event10');
+      expect(resp.toString(), '\$event12');
     });
 
     test('pushRuleState', () async {
@@ -1770,6 +1895,108 @@ void main() {
         await room.lastEvent?.calcLocalizedBody(MatrixDefaultLocalizations()),
         'Cancelled sending message',
       );
+    });
+
+    test('searchEvents', () async {
+      FakeMatrixApi.currentApi!.api['GET']![
+              '/client/v3/rooms/!localpart%3Aserver.abc/messages?from&dir=b&limit=1000&filter=%7B%22types%22%3A%5B%22m.room.message%22%2C%22m.room.encrypted%22%5D%7D'] =
+          (_) => {
+                'chunk': [
+                  {
+                    'content': {
+                      'body': 'This is an example text message',
+                      'format': 'org.matrix.custom.html',
+                      'formatted_body':
+                          '<b>This is an example text message</b>',
+                      'msgtype': 'm.text',
+                    },
+                    'event_id': '\$history1',
+                    'origin_server_ts': 1432735824653,
+                    'room_id': '!636q39766251:example.com',
+                    'sender': '@example:example.org',
+                    'type': 'm.room.message',
+                    'unsigned': {
+                      'age': 1234,
+                      'membership': 'join',
+                    },
+                  },
+                  {
+                    'content': {
+                      'name': 'The room name',
+                    },
+                    'event_id': '\$history2',
+                    'origin_server_ts': 1432735824653,
+                    'room_id': '!636q39766251:example.com',
+                    'sender': '@example:example.org',
+                    'state_key': '',
+                    'type': 'm.room.name',
+                    'unsigned': {
+                      'age': 1234,
+                      'membership': 'join',
+                    },
+                  },
+                  {
+                    'content': {
+                      'body': 'Gangnam Style',
+                      'info': {
+                        'duration': 2140786,
+                        'h': 320,
+                        'mimetype': 'video/mp4',
+                        'size': 1563685,
+                        'thumbnail_info': {
+                          'h': 300,
+                          'mimetype': 'image/jpeg',
+                          'size': 46144,
+                          'w': 300,
+                        },
+                        'thumbnail_url':
+                            'mxc://example.org/FHyPlCeYUSFFxlgbQYZmoEoe',
+                        'w': 480,
+                      },
+                      'msgtype': 'm.video',
+                      'url': 'mxc://example.org/a526eYUSFFxlgbQYZmo442',
+                    },
+                    'event_id': '\$history3',
+                    'origin_server_ts': 1432735824653,
+                    'room_id': '!636q39766251:example.com',
+                    'sender': '@example:example.org',
+                    'type': 'm.room.message',
+                    'unsigned': {
+                      'age': 1234,
+                      'membership': 'join',
+                    },
+                  }
+                ],
+                'end': 't47409-4357353_219380_26003_2265',
+                'start': 't47429-4392820_219380_26003_2265',
+              };
+      final searchResult = await room.searchEvents(searchFunc: (_) => true);
+      expect(searchResult.events.length, 18);
+      expect(searchResult.nextBatch, 't47409-4357353_219380_26003_2265');
+      expect(searchResult.searchedUntil!.millisecondsSinceEpoch, 1432735824653);
+      expect(
+        searchResult.events.any(
+          (event1) => searchResult.events.any(
+            (event2) => event1 != event2 && event1.eventId == event2.eventId,
+          ),
+        ),
+        false,
+        reason: 'No events are duplicated',
+      );
+
+      FakeMatrixApi.currentApi!.api['GET']![
+              '/client/v3/rooms/!localpart%3Aserver.abc/messages?from=t47409-4357353_219380_26003_2265&dir=b&limit=1000&filter=%7B%22types%22%3A%5B%22m.room.message%22%2C%22m.room.encrypted%22%5D%7D'] =
+          (_) => {
+                'start': 't47409-4357353_219380_26003_2265',
+                'chunk': [],
+              };
+      final secondResult = await room.searchEvents(
+        searchFunc: (_) => true,
+        nextBatch: searchResult.nextBatch,
+      );
+      expect(secondResult.events.isEmpty, true);
+      expect(secondResult.searchedUntil, null);
+      expect(secondResult.nextBatch, null);
     });
 
     test('logout', () async {

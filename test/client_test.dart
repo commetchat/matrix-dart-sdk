@@ -42,7 +42,7 @@ void main() {
   group('client path', () {
     late Client clientOnPath;
 
-    final dbPath = join(Directory.current.path, 'test.sqlite');
+    final dbPath = join(Directory.current.path, 'client_path_test.sqlite');
 
     setUp(() async {
       expect(
@@ -201,26 +201,26 @@ void main() {
         matrix.getDirectChatFromUserId('@bob:example.com'),
         '!726s6s6q:example.com',
       );
-      expect(matrix.rooms[2].directChatMatrixID, '@bob:example.com');
+      expect(matrix.rooms[1].directChatMatrixID, '@bob:example.com');
       expect(matrix.directChats, matrix.accountData['m.direct']?.content);
       // ignore: deprecated_member_use_from_same_package
       expect(matrix.presences.length, 1);
-      expect(matrix.rooms[2].ephemerals.length, 2);
-      expect(matrix.rooms[2].typingUsers.length, 1);
-      expect(matrix.rooms[2].typingUsers[0].id, '@alice:example.com');
-      expect(matrix.rooms[2].roomAccountData.length, 3);
-      expect(matrix.rooms[2].encrypted, true);
+      expect(matrix.rooms[1].ephemerals.length, 2);
+      expect(matrix.rooms[1].typingUsers.length, 1);
+      expect(matrix.rooms[1].typingUsers[0].id, '@alice:example.com');
+      expect(matrix.rooms[1].roomAccountData.length, 2);
+      expect(matrix.rooms[1].encrypted, true);
       expect(
-        matrix.rooms[2].encryptionAlgorithm,
+        matrix.rooms[1].encryptionAlgorithm,
         Client.supportedGroupEncryptionAlgorithms.first,
       );
       expect(
         matrix
-            .rooms[2].receiptState.global.otherUsers['@alice:example.com']?.ts,
+            .rooms[1].receiptState.global.otherUsers['@alice:example.com']?.ts,
         1436451550453,
       );
       expect(
-        matrix.rooms[2].receiptState.global.otherUsers['@alice:example.com']
+        matrix.rooms[1].receiptState.global.otherUsers['@alice:example.com']
             ?.eventId,
         '\$7365636s6r6432:example.com',
       );
@@ -231,7 +231,7 @@ void main() {
       expect(inviteRoom.states[EventTypes.RoomMember]?.length, 1);
       expect(matrix.rooms.length, 3);
       expect(
-        matrix.rooms[2].canonicalAlias,
+        matrix.rooms[1].canonicalAlias,
         "#famedlyContactDiscovery:${matrix.userID!.split(":")[1]}",
       );
       expect(
@@ -254,7 +254,6 @@ void main() {
             ?.verified,
         false,
       );
-      expect(matrix.wellKnown, isNull);
 
       await matrix.handleSync(
         SyncUpdate.fromJson({
@@ -327,9 +326,11 @@ void main() {
       expect(
         matrix
             .getRoomById('!726s6s6q:example.com')
-            ?.roomAccountData[LatestReceiptState.eventType]
-            ?.type,
-        LatestReceiptState.eventType,
+            ?.receiptState
+            .global
+            .otherUsers['@alice:example.com']!
+            .eventId,
+        '\$7365636s6r6432:example.com',
       );
       expect(
         matrix
@@ -524,6 +525,22 @@ void main() {
       FakeMatrixApi.currentApi?.api = oldapi!;
     });
 
+    test('init() with access token', () async {
+      final client = Client(
+        'testclient',
+        httpClient: FakeMatrixApi(),
+        database: await getDatabase(),
+      );
+      await client.init(
+        newToken: 'abcd1234',
+        newHomeserver: Uri.parse('https://fakeserver.notexisting'),
+      );
+      expect(client.isLogged(), true);
+      expect(client.userID, 'alice@example.com');
+      expect(client.deviceID, 'ABCDEFGH');
+      await client.dispose();
+    });
+
     test('Login', () async {
       matrix = Client(
         'testclient',
@@ -531,9 +548,14 @@ void main() {
         database: await getDatabase(),
       );
 
-      await matrix.checkHomeserver(
+      final (_, _, _, authMetadata) = await matrix.checkHomeserver(
         Uri.parse('https://fakeserver.notexisting'),
         checkWellKnown: false,
+        fetchAuthMetadata: true,
+      );
+      expect(
+        authMetadata?.issuer.toString(),
+        'https://fakeserver.notexisting/',
       );
 
       final loginResp = await matrix.login(
@@ -1488,25 +1510,16 @@ void main() {
     });
     test('upload', () async {
       final client = await getClient();
-      final response =
-          await client.uploadContent(Uint8List(0), filename: 'file.jpeg');
+      final response = await client.uploadContent(
+        Uint8List(0),
+        filename: 'file.jpeg',
+      );
       expect(response.toString(), 'mxc://example.com/AQwafuaFswefuhsfAFAgsw');
       expect(
         await client.database.getFile(response) != null,
         client.database.supportsFileStoring,
       );
       await client.dispose(closeDatabase: true);
-    });
-
-    test('wellKnown cache', () async {
-      final client = await getClient();
-      expect(client.wellKnown, null);
-      await client.getWellknown();
-      expect(
-        client.wellKnown?.mHomeserver.baseUrl.host,
-        'fakeserver.notexisting',
-      );
-      await client.dispose();
     });
 
     test('refreshAccessToken', () async {

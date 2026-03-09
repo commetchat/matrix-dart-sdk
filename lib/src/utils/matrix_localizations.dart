@@ -62,6 +62,8 @@ abstract class MatrixLocalizations {
 
   String get cancelledSend;
 
+  String get refreshingLastEvent;
+
   String youInvitedBy(String senderName);
 
   String invitedBy(String senderName);
@@ -185,6 +187,10 @@ abstract class MatrixLocalizations {
   String completedKeyVerification(String senderName);
 
   String canceledKeyVerification(String senderName);
+
+  String startedAPoll(String senderName);
+
+  String get pollHasBeenEnded;
 }
 
 extension HistoryVisibilityDisplayString on HistoryVisibility {
