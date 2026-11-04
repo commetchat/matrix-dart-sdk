@@ -1,4 +1,8 @@
-import 'package:matrix/matrix_api_lite.dart';
+// SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import '../../matrix_api_lite.dart';
 
 class CachedProfileInformation extends ProfileInformation {
   final bool outdated;
@@ -9,9 +13,11 @@ class CachedProfileInformation extends ProfileInformation {
     required this.outdated,
     required this.updated,
   }) : super(
-          avatarUrl: profile.avatarUrl,
-          displayname: profile.displayname,
-        );
+         avatarUrl: profile.avatarUrl,
+         displayname: profile.displayname,
+         additionalProperties: profile.additionalProperties,
+         mTz: profile.mTz,
+       );
 
   factory CachedProfileInformation.fromJson(Map<String, Object?> json) =>
       CachedProfileInformation.fromProfile(
@@ -22,8 +28,8 @@ class CachedProfileInformation extends ProfileInformation {
 
   @override
   Map<String, Object?> toJson() => {
-        ...super.toJson(),
-        'outdated': outdated,
-        'updated': updated.millisecondsSinceEpoch,
-      };
+    ...super.toJson(),
+    'outdated': outdated,
+    'updated': updated.millisecondsSinceEpoch,
+  };
 }

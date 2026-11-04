@@ -1,22 +1,8 @@
-/*
- *   Famedly Matrix SDK
- *   Copyright (C) 2019, 2020, 2021 Famedly GmbH
- *
- *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU Affero General Public License as
- *   published by the Free Software Foundation, either version 3 of the
- *   License, or (at your option) any later version.
- *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *   GNU Affero General Public License for more details.
- *
- *   You should have received a copy of the GNU Affero General Public License
- *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
-import 'package:matrix/matrix.dart';
+import '../matrix.dart';
 
 /// Represents a user in the context of a Matrix room, not a global user profile.
 ///
@@ -45,9 +31,9 @@ class User extends StrippedStateEvent {
       stateKey: id,
       senderId: id,
       content: {
-        if (membership != null) 'membership': membership,
-        if (displayName != null) 'displayname': displayName,
-        if (avatarUrl != null) 'avatar_url': avatarUrl,
+        'membership': ?membership,
+        'displayname': ?displayName,
+        'avatar_url': ?avatarUrl,
       },
       typeKey: EventTypes.RoomMember,
       room: room,
@@ -63,9 +49,7 @@ class User extends StrippedStateEvent {
     required this.room,
     this.originServerTs,
     this.prevContent,
-  }) : super(
-          type: typeKey,
-        );
+  }) : super(type: typeKey);
 
   /// The full qualified Matrix ID in the format @username:server.abc.
   String get id => stateKey ?? '@unknown:unknown';
@@ -73,32 +57,32 @@ class User extends StrippedStateEvent {
   /// The displayname of the user if the user has set one.
   String? get displayName =>
       content.tryGet<String>('displayname') ??
-      (membership == Membership.join
+      (membership == Membership.join ||
+              !room.client.getDisplayNameAndAvatarFromPrevContent
           ? null
           : prevContent?.tryGet<String>('displayname'));
 
   /// Returns the power level of this user.
-  int get powerLevel => room.getPowerLevelByUserId(id);
+  PowerLevel get powerLevel => room.getPowerLevelByUserId(id);
 
   /// The membership status of the user. One of:
   /// join
   /// invite
   /// leave
   /// ban
-  Membership get membership => Membership.values.firstWhere(
-        (e) {
-          if (content['membership'] != null) {
-            return e.toString() == 'Membership.${content['membership']}';
-          }
-          return false;
-        },
-        orElse: () => Membership.join,
-      );
+  Membership get membership => Membership.values.firstWhere((e) {
+    if (content['membership'] != null) {
+      return e.toString() == 'Membership.${content['membership']}';
+    }
+    return false;
+  }, orElse: () => Membership.join);
 
   /// The avatar if the user has one.
   Uri? get avatarUrl {
-    final uri = content.tryGet<String>('avatar_url') ??
-        (membership == Membership.join
+    final uri =
+        content.tryGet<String>('avatar_url') ??
+        (membership == Membership.join ||
+                !room.client.getDisplayNameAndAvatarFromPrevContent
             ? null
             : prevContent?.tryGet<String>('avatar_url'));
     return uri == null ? null : Uri.tryParse(uri);
@@ -155,13 +139,12 @@ class User extends StrippedStateEvent {
     bool? enableEncryption,
     List<StateEvent>? initialState,
     bool waitForSync = true,
-  }) async =>
-      room.client.startDirectChat(
-        id,
-        enableEncryption: enableEncryption,
-        initialState: initialState,
-        waitForSync: waitForSync,
-      );
+  }) async => room.client.startDirectChat(
+    id,
+    enableEncryption: enableEncryption,
+    initialState: initialState,
+    waitForSync: waitForSync,
+  );
 
   /// The newest presence of this user if there is any and null if not.
   @Deprecated('Deprecated in favour of currentPresence.')
@@ -198,7 +181,8 @@ class User extends StrippedStateEvent {
       (powerLevel < room.ownPowerLevel || id == room.client.userID);
 
   @override
-  bool operator ==(Object other) => (other is User &&
+  bool operator ==(Object other) =>
+      (other is User &&
       other.id == id &&
       other.room == room &&
       other.membership == membership);
@@ -264,13 +248,21 @@ String _hash(String s) =>
     (s.codeUnits.fold<int>(0, (a, b) => a + b) % _maximumHashLength).toString();
 
 extension FromStrippedStateEventExtension on StrippedStateEvent {
-  User asUser(Room room) => User.fromState(
-        // state key should always be set for member events
-        stateKey: stateKey!,
-        content: content,
-        typeKey: type,
-        senderId: senderId,
-        room: room,
-        originServerTs: null,
-      );
+  User asUser(Room room) {
+    if (this is User) {
+      return this as User;
+    }
+    if (this is Event) {
+      return (this as Event).asUser;
+    }
+    return User.fromState(
+      // state key should always be set for member events
+      stateKey: stateKey!,
+      content: content,
+      typeKey: type,
+      senderId: senderId,
+      room: room,
+      originServerTs: null,
+    );
+  }
 }

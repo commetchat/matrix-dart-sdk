@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import 'dart:async';
 import 'dart:collection';
 import 'dart:js_interop';
@@ -6,8 +10,9 @@ import 'dart:typed_data';
 
 import 'package:web/web.dart';
 
-import 'package:matrix/matrix.dart';
+import '../../../matrix.dart';
 
+// ignore: unused-code
 class NativeImplementationsWebWorker extends NativeImplementations {
   final Worker worker;
   final Duration timeout;
@@ -39,6 +44,9 @@ class NativeImplementationsWebWorker extends NativeImplementations {
     return completer.future.timeout(timeout);
   }
 
+  // toJS is not working with Future<void> so we need to ignore avoid_void_async
+  // lint here:
+  // ignore: avoid_void_async
   void _handleIncomingMessage(MessageEvent event) async {
     final data = event.data.dartify() as LinkedHashMap;
     // don't forget handling errors of our second thread...
@@ -46,7 +54,7 @@ class NativeImplementationsWebWorker extends NativeImplementations {
       final origin = data['origin'];
       final completer = _completers[origin];
 
-      final error = data['error']!;
+      final error = data['error'];
 
       final stackTrace = await onStackTrace.call(data['stacktrace'] as String);
       completer?.completeError(
@@ -91,9 +99,9 @@ class NativeImplementationsWebWorker extends NativeImplementations {
     try {
       final result =
           await operation<Map<dynamic, dynamic>, Map<String, dynamic>>(
-        WebWorkerOperations.shrinkImage,
-        args.toJson(),
-      );
+            WebWorkerOperations.shrinkImage,
+            args.toJson(),
+          );
       return MatrixImageFileResizedResponse.fromJson(Map.from(result));
     } catch (e, s) {
       if (!retryInDummy) {
@@ -107,6 +115,12 @@ class NativeImplementationsWebWorker extends NativeImplementations {
       Logs().e('Web worker computation error. Fallback to main thread', e, s);
       return NativeImplementations.dummy.shrinkImage(args);
     }
+  }
+
+  @override
+  FutureOr<bool> checkSecretStorageKey(CheckSecretStorageKeyArgs args) {
+    // Fallback: web worker only supports image computation in this SDK version.
+    return NativeImplementations.dummy.checkSecretStorageKey(args);
   }
 }
 
@@ -127,16 +141,13 @@ class WebWorkerData {
       );
 
   Map<String, Object?> toJson() => {
-        'label': label,
-        if (name != null) 'name': name!.index,
-        'data': data,
-      };
+    'label': label,
+    if (name != null) 'name': name!.index,
+    'data': data,
+  };
 }
 
-enum WebWorkerOperations {
-  shrinkImage,
-  calcImageMetadata,
-}
+enum WebWorkerOperations { shrinkImage, calcImageMetadata }
 
 class WebWorkerError extends Error {
   /// the error thrown in the web worker. Usually a [String]
@@ -155,6 +166,5 @@ class WebWorkerError extends Error {
 }
 
 /// converts a stringifyed, obfuscated [StackTrace] into a [StackTrace]
-typedef WebWorkerStackTraceCallback = FutureOr<StackTrace> Function(
-  String obfuscatedStackTrace,
-);
+typedef WebWorkerStackTraceCallback =
+    FutureOr<StackTrace> Function(String obfuscatedStackTrace);

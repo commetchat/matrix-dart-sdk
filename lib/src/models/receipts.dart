@@ -1,22 +1,8 @@
-/*
- *   Famedly Matrix SDK
- *   Copyright (C) 2020, 2021, 2023 Famedly GmbH
- *
- *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU Affero General Public License as
- *   published by the Free Software Foundation, either version 3 of the
- *   License, or (at your option) any later version.
- *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *   GNU Affero General Public License for more details.
- *
- *   You should have received a copy of the GNU Affero General Public License
- *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2019-Present, 2020, 2021, 2023 Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
-import 'package:matrix/matrix.dart';
+import '../../matrix.dart';
 
 // Receipts are pretty complicated nowadays. We basicaly have 3 different aspects, that we need to multiplex together:
 // 1. A receipt can be public or private. Currently clients can send either a public one, a private one or both. This means you have 2 receipts for your own user and no way to know, which one is ahead!
@@ -44,7 +30,8 @@ class Receipt {
   const Receipt(this.user, this.time);
 
   @override
-  bool operator ==(Object other) => (other is Receipt &&
+  bool operator ==(Object other) =>
+      (other is Receipt &&
       other.user == user &&
       other.time.millisecondsSinceEpoch == time.millisecondsSinceEpoch);
 
@@ -94,7 +81,7 @@ class ReceiptEventContent {
     //   }
     // }
 
-    final Map<String, Map<ReceiptType, Map<String, ReceiptData>>> receipts = {};
+    final receipts = <String, Map<ReceiptType, Map<String, ReceiptData>>>{};
     for (final eventIdEntry in json.entries) {
       final eventId = eventIdEntry.key;
       final contentForEventId = eventIdEntry.value;
@@ -114,7 +101,7 @@ class ReceiptEventContent {
           final receiptContent = userIdEntry.value;
 
           if (userId is! String ||
-              !userId.isValidMatrixId ||
+              !userId.isValidMatrixIdStrict() ||
               receiptContent is! Map) {
             continue;
           }
@@ -147,10 +134,10 @@ class LatestReceiptStateData {
   }
 
   Map<String, dynamic> toJson() => {
-        // abbreviated names, because we will store a lot of these.
-        'e': eventId,
-        'ts': ts,
-      };
+    // abbreviated names, because we will store a lot of these.
+    'e': eventId,
+    'ts': ts,
+  };
 }
 
 class LatestReceiptStateForTimeline {
@@ -181,27 +168,32 @@ class LatestReceiptStateForTimeline {
     final latest = json['latest'];
     final Map<String, dynamic>? others = json['others'];
 
-    final Map<String, LatestReceiptStateData> byUser = others
-            ?.map((k, v) => MapEntry(k, LatestReceiptStateData.fromJson(v))) ??
+    final byUser =
+        others?.map(
+          (k, v) => MapEntry(k, LatestReceiptStateData.fromJson(v)),
+        ) ??
         {};
 
     return LatestReceiptStateForTimeline(
-      ownPrivate:
-          private != null ? LatestReceiptStateData.fromJson(private) : null,
-      ownPublic:
-          public != null ? LatestReceiptStateData.fromJson(public) : null,
-      latestOwnReceipt:
-          latest != null ? LatestReceiptStateData.fromJson(latest) : null,
+      ownPrivate: private != null
+          ? LatestReceiptStateData.fromJson(private)
+          : null,
+      ownPublic: public != null
+          ? LatestReceiptStateData.fromJson(public)
+          : null,
+      latestOwnReceipt: latest != null
+          ? LatestReceiptStateData.fromJson(latest)
+          : null,
       otherUsers: byUser,
     );
   }
 
   Map<String, dynamic> toJson() => {
-        if (ownPrivate != null) 'private': ownPrivate!.toJson(),
-        if (ownPublic != null) 'public': ownPublic!.toJson(),
-        if (latestOwnReceipt != null) 'latest': latestOwnReceipt!.toJson(),
-        'others': otherUsers.map((k, v) => MapEntry(k, v.toJson())),
-      };
+    if (ownPrivate != null) 'private': ownPrivate!.toJson(),
+    if (ownPublic != null) 'public': ownPublic!.toJson(),
+    if (latestOwnReceipt != null) 'latest': latestOwnReceipt!.toJson(),
+    'others': otherUsers.map((k, v) => MapEntry(k, v.toJson())),
+  };
 }
 
 class LatestReceiptState {
@@ -232,8 +224,9 @@ class LatestReceiptState {
 
     return LatestReceiptState(
       global: LatestReceiptStateForTimeline.fromJson(global),
-      mainThread:
-          main.isNotEmpty ? LatestReceiptStateForTimeline.fromJson(main) : null,
+      mainThread: main.isNotEmpty
+          ? LatestReceiptStateForTimeline.fromJson(main)
+          : null,
       byThread: byThread.map(
         (k, v) => MapEntry(k, LatestReceiptStateForTimeline.fromJson(v)),
       ),
@@ -241,17 +234,14 @@ class LatestReceiptState {
   }
 
   Map<String, dynamic> toJson() => {
-        'global': global.toJson(),
-        if (mainThread != null) 'main': mainThread!.toJson(),
-        if (byThread.isNotEmpty)
-          'thread': byThread.map((k, v) => MapEntry(k, v.toJson())),
-      };
+    'global': global.toJson(),
+    if (mainThread != null) 'main': mainThread!.toJson(),
+    if (byThread.isNotEmpty)
+      'thread': byThread.map((k, v) => MapEntry(k, v.toJson())),
+  };
 
-  Future<void> update(
-    ReceiptEventContent content,
-    Room room,
-  ) async {
-    final List<LatestReceiptStateForTimeline> updatedTimelines = [];
+  Future<void> update(ReceiptEventContent content, Room room) async {
+    final updatedTimelines = <LatestReceiptStateForTimeline>[];
     final ownUserid = room.client.userID!;
 
     content.receipts.forEach((eventId, receiptsByType) {
@@ -262,14 +252,16 @@ class LatestReceiptState {
           if (threadId == 'main') {
             timeline = (mainThread ??= LatestReceiptStateForTimeline.empty());
           } else if (threadId != null) {
-            timeline =
-                (byThread[threadId] ??= LatestReceiptStateForTimeline.empty());
+            timeline = (byThread[threadId] ??=
+                LatestReceiptStateForTimeline.empty());
           } else {
             timeline = global;
           }
 
-          final receiptData =
-              LatestReceiptStateData(eventId, receipt.originServerTs);
+          final receiptData = LatestReceiptStateData(
+            eventId,
+            receipt.originServerTs,
+          );
           if (user == ownUserid) {
             if (receiptType == ReceiptType.mReadPrivate) {
               timeline.ownPrivate = receiptData;

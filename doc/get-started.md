@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+
+SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+
 Follow these steps to get started with your first Matrix Client.
 
 ## Step 1: Add dependencies
@@ -91,5 +97,5 @@ final timeline = await room.getTimeline(
 );
 
 // Print all messages in the timeline to the console
-for(final event in timeline.events) print(event.calcLocalizedBodyFallback());
+for(final event in timeline.events) print(event.calcLocalizedBody(MatrixDefaultLocalizations()));
 ```

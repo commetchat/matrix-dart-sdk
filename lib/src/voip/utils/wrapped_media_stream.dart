@@ -1,8 +1,12 @@
+// SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import 'package:webrtc_interface/webrtc_interface.dart';
 
-import 'package:matrix/matrix.dart';
-import 'package:matrix/src/utils/cached_stream_controller.dart';
-import 'package:matrix/src/voip/utils/stream_helper.dart';
+import '../../../matrix.dart';
+import '../../utils/cached_stream_controller.dart';
+import 'stream_helper.dart';
 
 /// Wrapped MediaStream, used to adapt Widget to display
 class WrappedMediaStream {

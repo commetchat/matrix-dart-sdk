@@ -1,33 +1,19 @@
-/*
- *   Famedly Matrix SDK
- *   Copyright (C) 2019, 2020, 2021 Famedly GmbH
- *
- *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU Affero General Public License as
- *   published by the Free Software Foundation, either version 3 of the
- *   License, or (at your option) any later version.
- *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *   GNU Affero General Public License for more details.
- *
- *   You should have received a copy of the GNU Affero General Public License
- *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:matrix/encryption/cross_signing.dart';
-import 'package:matrix/encryption/key_manager.dart';
-import 'package:matrix/encryption/key_verification_manager.dart';
-import 'package:matrix/encryption/olm_manager.dart';
-import 'package:matrix/encryption/ssss.dart';
-import 'package:matrix/encryption/utils/bootstrap.dart';
-import 'package:matrix/matrix.dart';
-import 'package:matrix/src/utils/copy_map.dart';
-import 'package:matrix/src/utils/run_in_root.dart';
+import '../matrix.dart';
+import '../src/utils/copy_map.dart';
+import '../src/utils/run_in_root.dart';
+import 'cross_signing.dart';
+import 'key_manager.dart';
+import 'key_verification_manager.dart';
+import 'olm_manager.dart';
+import 'ssss.dart';
+import 'utils/bootstrap.dart';
 
 class Encryption {
   final Client client;
@@ -55,10 +41,7 @@ class Encryption {
 
   late String ourDeviceId;
 
-  Encryption({
-    required this.client,
-    this.debug = false,
-  }) {
+  Encryption({required this.client, this.debug = false}) {
     ssss = SSSS(this);
     keyManager = KeyManager(this);
     olmManager = OlmManager(this);
@@ -85,10 +68,8 @@ class Encryption {
     if (!isDehydratedDevice) keyManager.startAutoUploadKeys();
   }
 
-  Bootstrap bootstrap({void Function(Bootstrap)? onUpdate}) => Bootstrap(
-        encryption: this,
-        onUpdate: onUpdate,
-      );
+  Bootstrap bootstrap({void Function(Bootstrap)? onUpdate}) =>
+      Bootstrap(encryption: this, onUpdate: onUpdate);
 
   void handleDeviceOneTimeKeysCount(
     Map<String, int>? countJson,
@@ -113,8 +94,10 @@ class Encryption {
       // events in /sync are handled
       await keyManager.handleToDeviceEvent(event);
     }
-    if ([EventTypes.RoomKeyRequest, EventTypes.ForwardedRoomKey]
-        .contains(event.type)) {
+    if ([
+      EventTypes.RoomKeyRequest,
+      EventTypes.ForwardedRoomKey,
+    ].contains(event.type)) {
       // "just" room key request things. We don't need these asap, so we handle
       // them in the background
       runInRoot(() => keyManager.handleToDeviceEvent(event));
@@ -169,10 +152,7 @@ class Encryption {
         s,
       );
       client.onEncryptionError.add(
-        SdkError(
-          exception: e is Exception ? e : Exception(e),
-          stackTrace: s,
-        ),
+        SdkError(exception: e is Exception ? e : Exception(e), stackTrace: s),
       );
       return event;
     }
@@ -198,8 +178,10 @@ class Encryption {
         throw DecryptException(DecryptException.unknownSession);
       }
 
-      final inboundGroupSession =
-          keyManager.getInboundGroupSession(event.room.id, sessionId);
+      final inboundGroupSession = keyManager.getInboundGroupSession(
+        event.room.id,
+        sessionId,
+      );
       if (!(inboundGroupSession?.isValid ?? false)) {
         canRequestSession = true;
         throw DecryptException(DecryptException.unknownSession);
@@ -208,16 +190,18 @@ class Encryption {
       // decrypt errors here may mean we have a bad session key - others might have a better one
       canRequestSession = true;
 
-      final decryptResult = inboundGroupSession!.inboundGroupSession!
-          .decrypt(content.ciphertextMegolm!);
+      final decryptResult = inboundGroupSession!.inboundGroupSession!.decrypt(
+        content.ciphertextMegolm!,
+      );
       canRequestSession = false;
 
       // we can't have the key be an int, else json-serializing will fail, thus we need it to be a string
       final messageIndexKey = 'key-${decryptResult.messageIndex}';
       final messageIndexValue =
           '${event.eventId}|${event.originServerTs.millisecondsSinceEpoch}';
-      final haveIndex =
-          inboundGroupSession.indexes.containsKey(messageIndexKey);
+      final haveIndex = inboundGroupSession.indexes.containsKey(
+        messageIndexKey,
+      );
       if (haveIndex &&
           inboundGroupSession.indexes[messageIndexKey] != messageIndexValue) {
         Logs().e('[Decrypt] Could not decrypt due to a corrupted session.');
@@ -289,7 +273,6 @@ class Encryption {
       originServerTs: event.originServerTs,
       unsigned: event.unsigned,
       stateKey: event.stateKey,
-      prevContent: event.prevContent,
       status: event.status,
       originalSource: event,
     );
@@ -308,16 +291,10 @@ class Encryption {
       final sessionId = content.sessionId;
       if (sessionId != null &&
           !(keyManager
-                  .getInboundGroupSession(
-                    event.room.id,
-                    sessionId,
-                  )
+                  .getInboundGroupSession(event.room.id, sessionId)
                   ?.isValid ??
               false)) {
-        await keyManager.loadInboundGroupSession(
-          event.room.id,
-          sessionId,
-        );
+        await keyManager.loadInboundGroupSession(event.room.id, sessionId);
       }
       event = decryptRoomEventSync(event);
       if (event.type == EventTypes.Encrypted &&
@@ -330,9 +307,6 @@ class Encryption {
         );
       }
       if (event.type != EventTypes.Encrypted && store) {
-        if (updateType != EventUpdateType.history) {
-          event.room.setState(event);
-        }
         await client.database.storeEventUpdate(
           event.room.id,
           event,
@@ -390,14 +364,15 @@ class Encryption {
     };
     final encryptedPayload = <String, dynamic>{
       'algorithm': AlgorithmTypes.megolmV1AesSha2,
-      'ciphertext':
-          sess!.outboundGroupSession!.encrypt(json.encode(payloadContent)),
+      'ciphertext': sess!.outboundGroupSession!.encrypt(
+        json.encode(payloadContent),
+      ),
       // device_id + sender_key should be removed at some point in future since
       // they're deprecated. Just left here for compatibility
       'device_id': client.deviceID,
       'sender_key': identityKey,
       'session_id': sess.outboundGroupSession!.sessionId,
-      if (mRelatesTo != null) 'm.relates_to': mRelatesTo,
+      'm.relates_to': ?mRelatesTo,
     };
     await keyManager.storeOutboundGroupSession(roomId, sess);
     return encryptedPayload;

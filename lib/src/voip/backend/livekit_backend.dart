@@ -1,9 +1,13 @@
+// SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:matrix/matrix.dart';
-import 'package:matrix/src/utils/crypto/crypto.dart';
+import '../../../matrix.dart';
+import '../../utils/crypto/crypto.dart';
 
 class LiveKitBackend extends CallBackend {
   final String livekitServiceUrl;
@@ -76,13 +80,10 @@ class LiveKitBackend extends CallBackend {
             .isAfter(DateTime.now()) &&
         !skipJoinDebounce) {
       Logs().d(
-        '_makeNewSenderKey using previous key because last created at ${_lastNewKeyTime.toString()}',
+        '_makeNewSenderKey using previous key because last created at $_lastNewKeyTime',
       );
       // still a fairly new key, just send that
-      await _sendEncryptionKeysEvent(
-        groupCall,
-        _latestLocalKeyIndex,
-      );
+      await _sendEncryptionKeysEvent(groupCall, _latestLocalKeyIndex);
       return;
     }
 
@@ -125,7 +126,7 @@ class LiveKitBackend extends CallBackend {
 
     Uint8List? ratchetedKey;
 
-    int ratchetTryCounter = 0;
+    var ratchetTryCounter = 0;
 
     while (ratchetTryCounter <= 8 &&
         (ratchetedKey == null || ratchetedKey.isEmpty)) {
@@ -222,20 +223,22 @@ class LiveKitBackend extends CallBackend {
       );
       // now wait for the key to propogate and then set it, hopefully users can
       // stil decrypt everything
-      final useKeyTimeout =
-          Future.delayed(groupCall.voip.timeouts!.useKeyDelay, () async {
-        Logs().i(
-          '[VOIP E2EE] delayed setting key changed event for ${participant.id} idx $encryptionKeyIndex key $encryptionKeyBin',
-        );
-        await groupCall.voip.delegate.keyProvider?.onSetEncryptionKey(
-          participant,
-          encryptionKeyBin,
-          encryptionKeyIndex,
-        );
-        if (participant.isLocal) {
-          _currentLocalKeyIndex = encryptionKeyIndex;
-        }
-      });
+      final useKeyTimeout = Future.delayed(
+        groupCall.voip.timeouts!.useKeyDelay,
+        () async {
+          Logs().i(
+            '[VOIP E2EE] delayed setting key changed event for ${participant.id} idx $encryptionKeyIndex key $encryptionKeyBin',
+          );
+          await groupCall.voip.delegate.keyProvider?.onSetEncryptionKey(
+            participant,
+            encryptionKeyBin,
+            encryptionKeyIndex,
+          );
+          if (participant.isLocal) {
+            _currentLocalKeyIndex = encryptionKeyIndex;
+          }
+        },
+      );
       _setNewKeyTimeouts.add(useKeyTimeout);
     } else {
       Logs().i(
@@ -271,20 +274,15 @@ class LiveKitBackend extends CallBackend {
         '[VOIP E2EE] _sendEncryptionKeysEvent Tried to send encryption keys event but no keys found!',
       );
       await _makeNewSenderKey(groupCall, false);
-      await _sendEncryptionKeysEvent(
-        groupCall,
-        keyIndex,
-        sendTo: sendTo,
-      );
+      await _sendEncryptionKeysEvent(groupCall, keyIndex, sendTo: sendTo);
       return;
     }
 
     try {
-      final keyContent = EncryptionKeysEventContent(
-        [EncryptionKeyEntry(keyIndex, base64Encode(myLatestKey))],
-        groupCall.groupCallId,
-      );
-      final Map<String, Object> data = {
+      final keyContent = EncryptionKeysEventContent([
+        EncryptionKeyEntry(keyIndex, base64Encode(myLatestKey)),
+      ], groupCall.groupCallId);
+      final data = <String, Object>{
         ...keyContent.toJson(),
         // used to find group call in groupCalls when ToDeviceEvent happens,
         // plays nicely with backwards compatibility for mesh calls
@@ -300,11 +298,7 @@ class LiveKitBackend extends CallBackend {
       );
     } catch (e, s) {
       Logs().e('[VOIP E2EE] Failed to send e2ee keys, retrying', e, s);
-      await _sendEncryptionKeysEvent(
-        groupCall,
-        keyIndex,
-        sendTo: sendTo,
-      );
+      await _sendEncryptionKeysEvent(groupCall, keyIndex, sendTo: sendTo);
     }
   }
 
@@ -316,7 +310,7 @@ class LiveKitBackend extends CallBackend {
   ) async {
     if (remoteParticipants.isEmpty) return;
     Logs().v(
-      '[VOIP E2EE] _sendToDeviceEvent: sending ${data.toString()} to ${remoteParticipants.map((e) => e.id)} ',
+      '[VOIP E2EE] _sendToDeviceEvent: sending $data to ${remoteParticipants.map((e) => e.id)} ',
     );
     final txid =
         VoIP.customTxid ?? groupCall.client.generateUniqueTransactionId();
@@ -325,19 +319,29 @@ class LiveKitBackend extends CallBackend {
 
     // could just combine the two but do not want to rewrite the enc thingy
     // wrappers here again.
-    final List<DeviceKeys> mustEncryptkeysToSendTo = [];
-    final Map<String, Map<String, Map<String, Object>>> unencryptedDataToSend =
-        {};
+    final mustEncryptkeysToSendTo = <DeviceKeys>[];
+    final unencryptedDataToSend = <String, Map<String, Map<String, Object>>>{};
 
     for (final participant in remoteParticipants) {
-      if (participant.deviceId == null) continue;
+      if (participant.deviceId == null) {
+        Logs().w(
+          '[VOIP E2EE] _sendToDeviceEvent: not sending $eventType to ${participant.id}, it has no device id',
+        );
+        continue;
+      }
       if (mustEncrypt) {
         await groupCall.client.userDeviceKeysLoading;
-        final deviceKey = groupCall.client.userDeviceKeys[participant.userId]
+        final deviceKey = groupCall
+            .client
+            .userDeviceKeys[participant.userId]
             ?.deviceKeys[participant.deviceId];
-        if (deviceKey != null) {
-          mustEncryptkeysToSendTo.add(deviceKey);
+        if (deviceKey == null) {
+          Logs().w(
+            '[VOIP E2EE] _sendToDeviceEvent: not sending $eventType to ${participant.id}, we have no device keys for it',
+          );
+          continue;
         }
+        mustEncryptkeysToSendTo.add(deviceKey);
       } else {
         unencryptedDataToSend.addAll({
           participant.userId: {participant.deviceId!: data},
@@ -375,7 +379,7 @@ class LiveKitBackend extends CallBackend {
     GroupCallSession groupCall,
     List<CallParticipant> remoteParticipants,
   ) async {
-    final Map<String, Object> data = {
+    final data = <String, Object>{
       'conf_id': groupCall.groupCallId,
       'device_id': groupCall.client.deviceID!,
       'room_id': groupCall.room.id,
@@ -403,8 +407,11 @@ class LiveKitBackend extends CallBackend {
     final keyContent = EncryptionKeysEventContent.fromJson(content);
 
     final callId = keyContent.callId;
-    final p =
-        CallParticipant(groupCall.voip, userId: userId, deviceId: deviceId);
+    final p = CallParticipant(
+      groupCall.voip,
+      userId: userId,
+      deviceId: deviceId,
+    );
 
     if (keyContent.keys.isEmpty) {
       Logs().w(
@@ -460,8 +467,7 @@ class LiveKitBackend extends CallBackend {
                 !mem.isExpired &&
                 // sanity checks
                 mem.backend.type == groupCall.backend.type &&
-                mem.roomId == groupCall.room.id &&
-                mem.application == groupCall.application,
+                mem.roomId == groupCall.room.id,
           )
           .isNotEmpty) {
         Logs().d(
@@ -471,11 +477,7 @@ class LiveKitBackend extends CallBackend {
           groupCall,
           _latestLocalKeyIndex,
           sendTo: [
-            CallParticipant(
-              groupCall.voip,
-              userId: userId,
-              deviceId: deviceId,
-            ),
+            CallParticipant(groupCall.voip, userId: userId, deviceId: deviceId),
           ],
         );
         return true;
@@ -495,8 +497,8 @@ class LiveKitBackend extends CallBackend {
       final stateKey = groupCall.voip.useUnprotectedPerDeviceStateKeys
           ? '${deviceId}_$userId'
           : useMSC3757
-              ? '${userId}_$deviceId'
-              : userId;
+          ? '${userId}_$deviceId'
+          : userId;
       await groupCall.room.client.getRoomStateWithKey(
         groupCall.room.id,
         EventTypes.GroupCallMember,
@@ -511,8 +513,7 @@ class LiveKitBackend extends CallBackend {
   Future<void> onNewParticipant(
     GroupCallSession groupCall,
     List<CallParticipant> anyJoined,
-  ) =>
-      _changeEncryptionKey(groupCall, anyJoined, true);
+  ) => _changeEncryptionKey(groupCall, anyJoined, true);
 
   @override
   Future<void> onLeftParticipant(
@@ -525,25 +526,24 @@ class LiveKitBackend extends CallBackend {
     if (_memberLeaveEncKeyRotateDebounceTimer != null) {
       _memberLeaveEncKeyRotateDebounceTimer!.cancel();
     }
-    _memberLeaveEncKeyRotateDebounceTimer =
-        Timer(groupCall.voip.timeouts!.makeKeyOnLeaveDelay, () async {
-      // we skipJoinDebounce here because we want to make sure a new key is generated
-      // and that the join debounce does not block us from making a new key
-      await _makeNewSenderKey(
-        groupCall,
-        true,
-        skipJoinDebounce: true,
-      );
-    });
+    _memberLeaveEncKeyRotateDebounceTimer = Timer(
+      groupCall.voip.timeouts!.makeKeyOnLeaveDelay,
+      () async {
+        // we skipJoinDebounce here because we want to make sure a new key is generated
+        // and that the join debounce does not block us from making a new key
+        await _makeNewSenderKey(groupCall, true, skipJoinDebounce: true);
+      },
+    );
   }
 
   @override
   Future<void> dispose(GroupCallSession groupCall) async {
     // only remove our own, to save requesting if we join again, yes the other side
     // will send it anyway but welp
-    _encryptionKeysMap.remove(groupCall.localParticipant!);
+    _encryptionKeysMap.remove(groupCall.localParticipant);
     _currentLocalKeyIndex = 0;
     _latestLocalKeyIndex = 0;
+    _lastNewKeyTime = DateTime(1900);
     _memberLeaveEncKeyRotateDebounceTimer?.cancel();
   }
 
@@ -562,10 +562,10 @@ class LiveKitBackend extends CallBackend {
 
   @override
   int get hashCode => Object.hash(
-        type.hashCode,
-        livekitServiceUrl.hashCode,
-        livekitAlias.hashCode,
-      );
+    type.hashCode,
+    livekitServiceUrl.hashCode,
+    livekitAlias.hashCode,
+  );
 
   /// get everything else from your livekit sdk in your client
   @override

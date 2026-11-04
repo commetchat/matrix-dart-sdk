@@ -1,24 +1,10 @@
-/*
- *   Famedly Matrix SDK
- *   Copyright (C) 2019, 2020 Famedly GmbH
- *
- *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU Affero General Public License as
- *   published by the Free Software Foundation, either version 3 of the
- *   License, or (at your option) any later version.
- *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *   GNU Affero General Public License for more details.
- *
- *   You should have received a copy of the GNU Affero General Public License
- *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
- */
-
-import 'package:test/test.dart';
+// SPDX-FileCopyrightText: 2019, 2020 Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 import 'package:matrix/matrix.dart';
+import 'package:test/test.dart';
+
 import 'fake_database.dart';
 
 void main() {
@@ -35,18 +21,21 @@ void main() {
         Uri.parse('https://fakeserver.notexisting'),
         checkWellKnown: false,
       );
-      final mxc = 'mxc://exampleserver.abc/abcdefghijklmn';
+      const mxc = 'mxc://exampleserver.abc/abcdefghijklmn';
       final content = Uri.parse(mxc);
       expect(content.isScheme('mxc'), true);
 
       expect(
         (await content.getDownloadUri(client)).toString(),
-        '${client.homeserver.toString()}/_matrix/client/v1/media/download/exampleserver.abc/abcdefghijklmn',
+        '${client.homeserver}/_matrix/client/v1/media/download/exampleserver.abc/abcdefghijklmn',
       );
       expect(
-        (await content.getThumbnailUri(client, width: 50, height: 50))
-            .toString(),
-        '${client.homeserver.toString()}/_matrix/client/v1/media/thumbnail/exampleserver.abc/abcdefghijklmn?width=50&height=50&method=crop&animated=false',
+        (await content.getThumbnailUri(
+          client,
+          width: 50,
+          height: 50,
+        )).toString(),
+        '${client.homeserver}/_matrix/client/v1/media/thumbnail/exampleserver.abc/abcdefghijklmn?width=50&height=50&method=crop&animated=false',
       );
       expect(
         (await content.getThumbnailUri(
@@ -55,9 +44,8 @@ void main() {
           height: 50,
           method: ThumbnailMethod.scale,
           animated: true,
-        ))
-            .toString(),
-        '${client.homeserver.toString()}/_matrix/client/v1/media/thumbnail/exampleserver.abc/abcdefghijklmn?width=50&height=50&method=scale&animated=true',
+        )).toString(),
+        '${client.homeserver}/_matrix/client/v1/media/thumbnail/exampleserver.abc/abcdefghijklmn?width=50&height=50&method=scale&animated=true',
       );
     });
     test('other port', () async {
@@ -71,18 +59,21 @@ void main() {
         checkWellKnown: false,
       );
       client.homeserver = Uri.parse('https://fakeserver.notexisting:1337');
-      final mxc = 'mxc://exampleserver.abc/abcdefghijklmn';
+      const mxc = 'mxc://exampleserver.abc/abcdefghijklmn';
       final content = Uri.parse(mxc);
       expect(content.isScheme('mxc'), true);
 
       expect(
         (await content.getDownloadUri(client)).toString(),
-        '${client.homeserver.toString()}/_matrix/client/v1/media/download/exampleserver.abc/abcdefghijklmn',
+        '${client.homeserver}/_matrix/client/v1/media/download/exampleserver.abc/abcdefghijklmn',
       );
       expect(
-        (await content.getThumbnailUri(client, width: 50, height: 50))
-            .toString(),
-        '${client.homeserver.toString()}/_matrix/client/v1/media/thumbnail/exampleserver.abc/abcdefghijklmn?width=50&height=50&method=crop&animated=false',
+        (await content.getThumbnailUri(
+          client,
+          width: 50,
+          height: 50,
+        )).toString(),
+        '${client.homeserver}/_matrix/client/v1/media/thumbnail/exampleserver.abc/abcdefghijklmn?width=50&height=50&method=crop&animated=false',
       );
       expect(
         (await content.getThumbnailUri(
@@ -91,8 +82,7 @@ void main() {
           height: 50,
           method: ThumbnailMethod.scale,
           animated: true,
-        ))
-            .toString(),
+        )).toString(),
         'https://fakeserver.notexisting:1337/_matrix/client/v1/media/thumbnail/exampleserver.abc/abcdefghijklmn?width=50&height=50&method=scale&animated=true',
       );
     });
@@ -106,18 +96,21 @@ void main() {
         Uri.parse('https://fakeserver.notexisting'),
         checkWellKnown: false,
       );
-      final mxc = 'mxc://exampleserver.abc:1234/abcdefghijklmn';
+      const mxc = 'mxc://exampleserver.abc:1234/abcdefghijklmn';
       final content = Uri.parse(mxc);
       expect(content.isScheme('mxc'), true);
 
       expect(
         (await content.getDownloadUri(client)).toString(),
-        '${client.homeserver.toString()}/_matrix/client/v1/media/download/exampleserver.abc:1234/abcdefghijklmn',
+        '${client.homeserver}/_matrix/client/v1/media/download/exampleserver.abc:1234/abcdefghijklmn',
       );
       expect(
-        (await content.getThumbnailUri(client, width: 50, height: 50))
-            .toString(),
-        '${client.homeserver.toString()}/_matrix/client/v1/media/thumbnail/exampleserver.abc:1234/abcdefghijklmn?width=50&height=50&method=crop&animated=false',
+        (await content.getThumbnailUri(
+          client,
+          width: 50,
+          height: 50,
+        )).toString(),
+        '${client.homeserver}/_matrix/client/v1/media/thumbnail/exampleserver.abc:1234/abcdefghijklmn?width=50&height=50&method=crop&animated=false',
       );
     });
     test('Wrong scheme throw exception', () async {
@@ -147,18 +140,21 @@ void main() {
       );
 
       expect(await client.authenticatedMediaSupported(), false);
-      final mxc = 'mxc://exampleserver.abc:1234/abcdefghijklmn';
+      const mxc = 'mxc://exampleserver.abc:1234/abcdefghijklmn';
       final content = Uri.parse(mxc);
       expect(content.isScheme('mxc'), true);
 
       expect(
         (await content.getDownloadUri(client)).toString(),
-        '${client.homeserver.toString()}/_matrix/media/v3/download/exampleserver.abc:1234/abcdefghijklmn',
+        '${client.homeserver}/_matrix/media/v3/download/exampleserver.abc:1234/abcdefghijklmn',
       );
       expect(
-        (await content.getThumbnailUri(client, width: 50, height: 50))
-            .toString(),
-        '${client.homeserver.toString()}/_matrix/media/v3/thumbnail/exampleserver.abc:1234/abcdefghijklmn?width=50&height=50&method=crop&animated=false',
+        (await content.getThumbnailUri(
+          client,
+          width: 50,
+          height: 50,
+        )).toString(),
+        '${client.homeserver}/_matrix/media/v3/thumbnail/exampleserver.abc:1234/abcdefghijklmn?width=50&height=50&method=crop&animated=false',
       );
     });
   });

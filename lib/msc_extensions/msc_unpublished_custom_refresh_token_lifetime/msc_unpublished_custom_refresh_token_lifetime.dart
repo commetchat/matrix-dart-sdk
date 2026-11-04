@@ -1,8 +1,12 @@
+// SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import 'dart:convert';
 
 import 'package:http/http.dart';
 
-import 'package:matrix/matrix.dart';
+import '../../matrix.dart';
 
 extension MscUnpublishedCustomRefreshTokenLifetime on MatrixApi {
   static const String customFieldKey = 'com.famedly.refresh_token_lifetime_ms';
@@ -28,6 +32,7 @@ extension MscUnpublishedCustomRefreshTokenLifetime on MatrixApi {
   /// [refreshToken] The refresh token
   Future<RefreshResponse> refreshWithCustomRefreshTokenLifetime(
     String refreshToken, {
+
     /// This allows clients to pass an extra parameter when refreshing a token,
     /// which overrides the configured refresh token timeout in the Synapse
     /// config. This allows a client to opt into a shorter (or longer) lifetime
@@ -44,8 +49,7 @@ extension MscUnpublishedCustomRefreshTokenLifetime on MatrixApi {
     request.bodyBytes = utf8.encode(
       jsonEncode({
         'refresh_token': refreshToken,
-        if (refreshTokenLifetimeMs != null)
-          customFieldKey: refreshTokenLifetimeMs,
+        customFieldKey: ?refreshTokenLifetimeMs,
       }),
     );
     final response = await httpClient.send(request);

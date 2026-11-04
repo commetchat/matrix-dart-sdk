@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // ignore_for_file: avoid_print
 
 import 'dart:async';
@@ -7,8 +11,8 @@ import 'dart:typed_data';
 
 import 'package:web/web.dart';
 
-import 'package:matrix/matrix.dart' hide Event;
-import 'package:matrix/src/utils/web_worker/native_implementations_web_worker.dart';
+import '../../../matrix.dart' hide Event;
+import 'native_implementations_web_worker.dart';
 
 ///
 ///
@@ -34,6 +38,7 @@ DedicatedWorkerGlobalScope get _workerScope =>
     (globalContext as DedicatedWorkerGlobalScope).self
         as DedicatedWorkerGlobalScope;
 
+// ignore: unused-code
 @pragma('dart2js:tryInline')
 Future<void> startWebWorker() async {
   Logs().i('[native implementations worker]: Starting...');
@@ -48,10 +53,7 @@ Future<void> startWebWorker() async {
               Map.from(operation.data as Map),
             ),
           );
-          _sendResponse(
-            operation.label as double,
-            result?.toJson(),
-          );
+          _sendResponse(operation.label as double, result?.toJson());
           break;
         case WebWorkerOperations.calcImageMetadata:
           final result = MatrixImageFile.calcMetadataImplementation(
@@ -59,10 +61,7 @@ Future<void> startWebWorker() async {
               (operation.data as List).whereType<int>().toList(),
             ),
           );
-          _sendResponse(
-            operation.label as double,
-            result?.toJson(),
-          );
+          _sendResponse(operation.label as double, result?.toJson());
           break;
         default:
           throw TypeError();
@@ -73,27 +72,15 @@ Future<void> startWebWorker() async {
   }.toJS;
 }
 
-void _sendResponse(
-  double label,
-  dynamic response,
-) {
+void _sendResponse(double label, dynamic response) {
   try {
-    _workerScope.postMessage(
-      {
-        'label': label,
-        'data': response,
-      }.jsify(),
-    );
+    _workerScope.postMessage({'label': label, 'data': response}.jsify());
   } catch (e, s) {
     Logs().e('[native implementations worker] Error responding: $e, $s');
   }
 }
 
-void _replyError(
-  Object? error,
-  StackTrace stackTrace,
-  double origin,
-) {
+void _replyError(Object? error, StackTrace stackTrace, double origin) {
   if (error != null) {
     try {
       final jsError = error.jsify();

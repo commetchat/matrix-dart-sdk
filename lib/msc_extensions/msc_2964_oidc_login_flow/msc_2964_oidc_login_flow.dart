@@ -1,10 +1,15 @@
+// SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:http/http.dart' as http;
 import 'package:vodozemac/vodozemac.dart' as vod;
 
-import 'package:matrix/matrix.dart';
-import 'package:matrix/src/utils/crypto/crypto.dart';
+import '../../matrix.dart';
+import '../../src/utils/crypto/crypto.dart';
 
 extension Msc2964OidcLoginFlow on Client {
   /// Initializes a new OIDC Login session by creating a state, a code verifier
@@ -38,8 +43,9 @@ extension Msc2964OidcLoginFlow on Client {
         : OidcResponseMode.query;
 
     final state = base64UrlEncodeNoPadding(secureRandomBytes(32));
-    final codeVerifier =
-        base64UrlEncodeNoPadding(secureRandomBytes(codeVerifierBytesLength));
+    final codeVerifier = base64UrlEncodeNoPadding(
+      secureRandomBytes(codeVerifierBytesLength),
+    );
     final codeChallenge = base64UrlEncodeNoPadding(
       vod.CryptoUtils.sha256(input: ascii.encode(codeVerifier)),
     );
@@ -53,7 +59,7 @@ extension Msc2964OidcLoginFlow on Client {
         'code_challenge_method': 'S256',
         'response_mode': responseMode.name,
         'state': state,
-        if (prompt != null) 'prompt': prompt,
+        'prompt': ?prompt,
       },
     );
 
@@ -92,15 +98,18 @@ extension Msc2964OidcLoginFlow on Client {
       body: body,
       headers: {'content-type': 'application/x-www-form-urlencoded'},
     );
+    if (response.statusCode >= 400) {
+      throw OidcException.fromResponse(response);
+    }
     if (response.statusCode != 200) {
-      unexpectedResponse(
-        response,
-        response.bodyBytes,
+      Logs().w(
+        'Expected a status code of 200 but got ${response.statusCode} for OIDC login.',
       );
     }
     final responseString = utf8.decode(response.bodyBytes);
-    final oidcAuthResponse =
-        OidcAuthResponse.fromJson(jsonDecode(responseString));
+    final oidcAuthResponse = OidcAuthResponse.fromJson(
+      jsonDecode(responseString),
+    );
     final expiresIn = oidcAuthResponse.expiresIn;
     await init(
       newHomeserver: homeserver,
@@ -108,7 +117,7 @@ extension Msc2964OidcLoginFlow on Client {
       newRefreshToken: oidcAuthResponse.refreshToken,
       newTokenExpiresAt: expiresIn == null
           ? null
-          : DateTime.now().add(Duration(milliseconds: expiresIn)),
+          : DateTime.now().add(expiresIn),
       newOidcClientId: session.oidcClientData.clientId,
     );
   }
@@ -127,10 +136,12 @@ extension Msc2964OidcLoginFlow on Client {
       },
       headers: {'content-type': 'application/x-www-form-urlencoded'},
     );
+    if (response.statusCode >= 400) {
+      throw OidcException.fromResponse(response);
+    }
     if (response.statusCode != 200) {
-      unexpectedResponse(
-        response,
-        response.bodyBytes,
+      Logs().w(
+        'Expected a status code of 200 but got ${response.statusCode} for OIDC refresh.',
       );
     }
     final responseString = utf8.decode(response.bodyBytes);
@@ -152,19 +163,34 @@ extension Msc2964OidcLoginFlow on Client {
       },
       headers: {'content-type': 'application/x-www-form-urlencoded'},
     );
+    if (response.statusCode >= 400) {
+      throw OidcException.fromResponse(response);
+    }
     if (response.statusCode != 200) {
-      unexpectedResponse(
-        response,
-        response.bodyBytes,
+      Logs().w(
+        'Expected a status code of 200 but got ${response.statusCode} for revoke OIDC token.',
       );
     }
   }
 }
 
+class OidcException implements Exception {
+  final String error;
+  final String? errorDescription;
+
+  OidcException({required this.error, required this.errorDescription});
+  factory OidcException.fromJson(Map<String, Object?> json) => OidcException(
+    error: json['error'] as String,
+    errorDescription: json['error_description'] as String?,
+  );
+  factory OidcException.fromResponse(http.Response response) =>
+      OidcException.fromJson(jsonDecode(utf8.decode(response.bodyBytes)));
+}
+
 class OidcAuthResponse {
   final String accessToken, tokenType;
   final String? refreshToken, scope;
-  final int? expiresIn;
+  final Duration? expiresIn;
 
   OidcAuthResponse({
     required this.accessToken,
@@ -180,7 +206,9 @@ class OidcAuthResponse {
         tokenType: json['token_type'] as String,
         refreshToken: json['refresh_token'] as String?,
         scope: json['scope'] as String?,
-        expiresIn: json['expires_in'] as int?,
+        expiresIn: json['expires_in'] is int
+            ? Duration(seconds: json['expires_in'] as int)
+            : null,
       );
 }
 
@@ -207,6 +235,8 @@ String base64UrlEncodeNoPadding(List<int> bytes) {
 String generateRandomDeviceId() {
   const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   final random = Random.secure();
-  return List.generate(10, (_) => letters[random.nextInt(letters.length)])
-      .join();
+  return List.generate(
+    10,
+    (_) => letters[random.nextInt(letters.length)],
+  ).join();
 }

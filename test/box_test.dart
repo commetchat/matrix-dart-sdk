@@ -1,13 +1,16 @@
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:test/test.dart';
+// SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 import 'package:matrix/src/database/sqflite_box.dart'
     if (dart.library.js_interop) 'package:matrix/src/database/indexeddb_box.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:test/test.dart';
 
 void main() {
   group('Box tests', () {
     late BoxCollection collection;
-    const Set<String> boxNames = {'cats', 'dogs'};
+    const boxNames = <String>{'cats', 'dogs'};
     const data = {'name': 'Fluffy', 'age': 2};
     const data2 = {'name': 'Loki', 'age': 4};
     Database? db;
@@ -55,6 +58,24 @@ void main() {
       await box.clear();
     });
 
+    test(
+      'Box.getAllValues with a key added after the keys were cached',
+      () async {
+        final box = collection.openBox<Map>('cats');
+        await box.put('fluffy', data);
+
+        // Populate the key cache, like any earlier read from the box does.
+        expect(await box.getAllKeys(), ['fluffy']);
+
+        // 'alpha' sorts before 'fluffy', so the order the keys were written in
+        // differs from the order the box stores them in.
+        await box.put('alpha', data2);
+
+        expect(await box.getAllValues(), {'fluffy': data, 'alpha': data2});
+        await box.clear();
+      },
+    );
+
     test('Box.delete', () async {
       final box = collection.openBox<Map>('cats');
       await box.put('fluffy', data);
@@ -99,14 +120,11 @@ void main() {
       await collection.close();
     });
 
-    test(
-      'Collection.deleteDatabase',
-      () async {
-        await collection.deleteDatabase(
-          db?.path ?? '',
-          isWeb ? null : databaseFactoryFfi,
-        );
-      },
-    );
+    test('Collection.deleteDatabase', () async {
+      await collection.deleteDatabase(
+        db?.path ?? '',
+        isWeb ? null : databaseFactoryFfi,
+      );
+    });
   });
 }
