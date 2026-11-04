@@ -1,4 +1,8 @@
-import 'package:matrix/matrix.dart';
+// SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import '../../../matrix.dart';
 
 class FamedlyCallMemberEvent {
   final List<CallMembership> memberships;
@@ -10,7 +14,7 @@ class FamedlyCallMemberEvent {
   }
 
   factory FamedlyCallMemberEvent.fromJson(Event event, VoIP voip) {
-    final List<CallMembership> callMemberships = [];
+    final callMemberships = <CallMembership>[];
     final memberships = event.content.tryGetList('memberships');
     if (memberships != null && memberships.isNotEmpty) {
       for (final mem in memberships) {
@@ -136,7 +140,6 @@ class CallMembership {
           userId == other.userId &&
           roomId == other.roomId &&
           callId == other.callId &&
-          application == other.application &&
           scope == other.scope &&
           backend.type == other.backend.type &&
           deviceId == other.deviceId &&
@@ -145,16 +148,16 @@ class CallMembership {
 
   @override
   int get hashCode => Object.hash(
-        userId.hashCode,
-        roomId.hashCode,
-        callId.hashCode,
-        application.hashCode,
-        scope.hashCode,
-        backend.type.hashCode,
-        deviceId.hashCode,
-        eventId.hashCode,
-        membershipId.hashCode,
-      );
+    userId.hashCode,
+    roomId.hashCode,
+    callId.hashCode,
+    application.hashCode,
+    scope.hashCode,
+    backend.type.hashCode,
+    deviceId.hashCode,
+    eventId.hashCode,
+    membershipId.hashCode,
+  );
 
   // with a buffer of 1 minute just incase we were slow to process a
   // call event, if the device is actually dead it should

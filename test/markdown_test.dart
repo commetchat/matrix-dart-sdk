@@ -1,32 +1,14 @@
-/*
- *   Famedly Matrix SDK
- *   Copyright (C) 2019, 2020 Famedly GmbH
- *
- *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU Affero General Public License as
- *   published by the Free Software Foundation, either version 3 of the
- *   License, or (at your option) any later version.
- *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *   GNU Affero General Public License for more details.
- *
- *   You should have received a copy of the GNU Affero General Public License
- *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
- */
-
-import 'package:test/test.dart';
+// SPDX-FileCopyrightText: 2019, 2020 Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 import 'package:matrix/src/utils/markdown.dart';
+import 'package:test/test.dart';
 
 void main() {
   group('markdown', () {
     final emotePacks = {
-      'room': {
-        'fox': 'mxc://roomfox',
-        'bunny': 'mxc://roombunny',
-      },
+      'room': {'fox': 'mxc://roomfox', 'bunny': 'mxc://roombunny'},
       'user': {
         'fox': 'mxc://userfox',
         'bunny': 'mxc://userbunny',
@@ -204,6 +186,16 @@ void main() {
         'meep <code>\$\\frac{2}{3}\$</code>',
       );
     });
+    test('enableLatex gates LaTeX parsing', () {
+      expect(
+        markdown('meep \$\\frac{2}{3}\$', enableLatex: true),
+        contains('data-mx-maths'),
+      );
+      expect(
+        markdown('meep \$\\frac{2}{3}\$', enableLatex: false),
+        isNot(contains('data-mx-maths')),
+      );
+    });
     test('Code blocks', () {
       expect(
         markdown(
@@ -224,6 +216,15 @@ void main() {
         markdown('Test <m> *unescaped*'),
         'Test &lt;m&gt; <em>unescaped</em>',
       );
+    });
+    test('Math', () {
+      expect(
+        markdown('\$\$ a+b=c'),
+        '<div data-mx-maths="a+b=c"><pre><code>a+b=c</code></pre></div>',
+      );
+      const unescapedAsciiChars =
+          '! #\$%*+,-./0123456789:;=?`ABCDEFGHIJKLMNOPQRSTUVWXYZ[~]^_@abcdefghijklmnopqrstuvwxyz{¬}| ÜÖÄüöäß§´²³';
+      expect(markdown(unescapedAsciiChars), unescapedAsciiChars);
     });
     test('Checkboxes', () {
       expect(

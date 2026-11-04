@@ -1,12 +1,15 @@
-import 'dart:ffi';
+// SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import 'dart:io';
-import 'dart:math' show max;
 
 import 'package:sqflite_common/sqlite_api.dart';
-import 'package:sqlite3/open.dart';
+import 'package:sqflite_common/utils/utils.dart';
 
-import 'package:matrix/matrix.dart';
+import '../../../matrix.dart';
 
+// ignore: unused-code
 /// A helper utility for SQfLite related encryption operations
 ///
 /// * helps loading the required dynamic libraries - even on cursed systems
@@ -27,70 +30,6 @@ class SQfLiteEncryptionHelper {
     required this.path,
     required this.cipher,
   });
-
-  /// Loads the correct [DynamicLibrary] required for SQLCipher
-  ///
-  /// To be used with `package:sqlite3/open.dart`:
-  /// ```dart
-  /// void main() {
-  ///   final factory = createDatabaseFactoryFfi(
-  ///     ffiInit: SQfLiteEncryptionHelper.ffiInit,
-  ///   );
-  /// }
-  /// ```
-  static void ffiInit() => open.overrideForAll(_loadSQLCipherDynamicLibrary);
-
-  static DynamicLibrary _loadSQLCipherDynamicLibrary() {
-    // Taken from https://github.com/simolus3/sqlite3.dart/blob/e66702c5bec7faec2bf71d374c008d5273ef2b3b/sqlite3/lib/src/load_library.dart#L24
-    if (Platform.isAndroid) {
-      try {
-        return DynamicLibrary.open('libsqlcipher.so');
-      } catch (_) {
-        // On some (especially old) Android devices, we somehow can't dlopen
-        // libraries shipped with the apk. We need to find the full path of the
-        // library (/data/data/<id>/lib/libsqlcipher.so) and open that one.
-        // For details, see https://github.com/simolus3/moor/issues/420
-        final appIdAsBytes = File('/proc/self/cmdline').readAsBytesSync();
-
-        // app id ends with the first \0 character in here.
-        final endOfAppId = max(appIdAsBytes.indexOf(0), 0);
-        final appId = String.fromCharCodes(appIdAsBytes.sublist(0, endOfAppId));
-
-        return DynamicLibrary.open('/data/data/$appId/lib/libsqlcipher.so');
-      }
-    }
-    if (Platform.isLinux) {
-      // *not my fault grumble*
-      //
-      // On many Linux systems, I encountered issues opening the system provided
-      // libsqlcipher.so. I hence decided to ship an own one - statically linked
-      // against a patched version of OpenSSL compiled with the correct options.
-      //
-      // This was the only way I reached to run on particular Fedora and Arch
-      // systems.
-      //
-      // Hours wasted : 12
-      try {
-        return DynamicLibrary.open('libsqlcipher_flutter_libs_plugin.so');
-      } catch (_) {
-        return DynamicLibrary.open('libsqlcipher.so');
-      }
-    }
-    if (Platform.isIOS) {
-      return DynamicLibrary.process();
-    }
-    if (Platform.isMacOS) {
-      return DynamicLibrary.open(
-        'sqlcipher_flutter_libs.framework/Versions/Current/'
-        'sqlcipher_flutter_libs',
-      );
-    }
-    if (Platform.isWindows) {
-      return DynamicLibrary.open('libsqlcipher.dll');
-    }
-
-    throw UnsupportedError('Unsupported platform: ${Platform.operatingSystem}');
-  }
 
   /// checks whether the database exists and is encrypted
   ///
@@ -152,7 +91,13 @@ class SQfLiteEncryptionHelper {
   /// * ensures PRAGMA is supported by the given [database]
   /// * applies [cipher] as PRAGMA key
   /// * checks whether this operation was successful
-  Future<void> applyPragmaKey(Database database) async {
+  Future<void> applyPragmaKey(
+    Database database, {
+
+    /// (Optional) ensures incremental auto vacuum to clean up free database
+    /// pages e.g. after a `Database.clearCache()`.
+    bool ensureIncrementalAutoVacuum = false,
+  }) async {
     final cipherVersion = await database.rawQuery('PRAGMA cipher_version;');
     if (cipherVersion.isEmpty) {
       // Make sure that we're actually using SQLCipher, since the pragma
@@ -172,6 +117,23 @@ class SQfLiteEncryptionHelper {
 
     final result = await database.rawQuery("PRAGMA KEY='$cipher';");
     assert(result.single['ok'] == 'ok');
+
+    if (ensureIncrementalAutoVacuum) {
+      const incrementalAutoVacuum = 2;
+
+      final currentMode = firstIntValue(
+        await database.rawQuery('PRAGMA auto_vacuum'),
+      );
+
+      if (currentMode != incrementalAutoVacuum) {
+        Logs().i('Switching database to incremental auto_vacuum...');
+        await database.rawQuery('PRAGMA auto_vacuum = $incrementalAutoVacuum');
+        await database.rawQuery('VACUUM');
+        return;
+      }
+
+      await database.rawQuery('PRAGMA incremental_vacuum');
+    }
   }
 
   /// checks whether a File has a plain text SQLite header
@@ -214,7 +176,7 @@ class SQfLiteEncryptionHelper {
     if (identical(a, b)) {
       return true;
     }
-    for (int index = 0; index < a.length; index += 1) {
+    for (var index = 0; index < a.length; index += 1) {
       if (a[index] != b[index]) {
         return false;
       }

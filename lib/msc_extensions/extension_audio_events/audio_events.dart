@@ -1,4 +1,8 @@
-import 'package:matrix/matrix.dart';
+// SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import '../../matrix.dart';
 
 extension AudioEventRoomExtension on Room {
   /// Sends an audio file with appropriate info to this room. Returns the event

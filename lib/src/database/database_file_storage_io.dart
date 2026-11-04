@@ -1,10 +1,15 @@
+// SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:path/path.dart';
 
-import 'package:matrix/matrix.dart';
+import '../../matrix.dart';
 
+// ignore: unused-code
 mixin DatabaseFileStorage {
   bool get supportsFileStoring => fileStorageLocation != null;
 
@@ -20,9 +25,7 @@ mixin DatabaseFileStorage {
         .map((entry) => '${entry.key}${entry.value}')
         .join('_');
     final fileName = '${host}_${path}_$query';
-    return File(
-      join(Directory.fromUri(fileStorageLocation!).path, fileName),
-    );
+    return File(join(Directory.fromUri(fileStorageLocation!).path, fileName));
   }
 
   Future<void> storeFile(Uri mxcUri, Uint8List bytes, int time) async {
@@ -53,7 +56,11 @@ mixin DatabaseFileStorage {
 
     if (await file.exists() == false) return false;
 
-    await file.delete();
+    try {
+      await file.delete();
+    } on PathNotFoundException {
+      return false;
+    }
     return true;
   }
 
@@ -70,9 +77,14 @@ mixin DatabaseFileStorage {
     for (final file in entities) {
       if (file is! File) continue;
       final stat = await file.stat();
+      if (stat.type != FileSystemEntityType.file) continue;
       if (DateTime.now().difference(stat.modified) > deleteFilesAfterDuration) {
         Logs().v('Delete old file', file.path);
-        await file.delete();
+        try {
+          await file.delete();
+        } on PathNotFoundException {
+          // File may have been removed after listing, e.g. by sendFileEvent cleanup.
+        }
       }
     }
   }

@@ -1,3 +1,251 @@
+<!--
+SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+
+SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+
+## [15.0.0] 3rd Nov 2026
+
+- chore: align CODEOWNERS with current team structure (Niklas Zender)
+- fix: decrypt last events from key backup right after SSSS unlock (yurtemre7)
+- fix: use correct room participant count for push rules if available (Christian Kußowski)
+- fix: verified only mode for ShareKeysWith (Christian Kußowski)
+- refactor: [BREAKING] deprecate calcLocalizedBodyFallback + remove withSenderNamePrefix in calcLocalizedBody (Karthikeyan S)
+
+## [14.2.0] 20th Oct 2026
+
+- chore: update vodozemac to 0.9.0 (yurtemre7)
+
+## [14.1.0] 16th Oct 2026
+
+- feat: add secure storage interface to database (Christian Kußowski)
+- fix: await sync after invite() in encrypted rooms (Christian Kußowski)
+- fix: compare new inbound sessions with the stored one, not only the cached one (Niklas Zender)
+- fix: do not add invalid matrix IDs to m.mention (Christian Kußowski)
+- fix: persist the timeline order when a sent event comes down the sync (Niklas Zender)
+- perf: only look up new devices of a user if there are any (Niklas Zender)
+- refactor: add additionalProperties to Pushnotification (Christian Kußowski)
+- refactor: insertClient and updateClient to storeClient() (Christian Kußowski)
+- refactor: remove useless readOnly parameter (Christian Kußowski)
+- refactor: remove useless transaction around db read (Christian Kußowski)
+- test: make the EventTooLarge test deterministic (Niklas Zender)
+
+## [14.0.0] 8th Oct 2026
+
+- build: set flutter version for analyze in ci (Christian Kußowski)
+- chore: make DeviceKeysList serializable (Christian Kußowski)
+- chore: remove pantalaimon reference (Christian Kußowski)
+- feat: allow set timestamp, asset type and location from MSC3488 to Room.sendLocation() (Christian Kußowski)
+- fix: add missing skip signature check when vodozemac is not enabled (Christian Kußowski)
+- fix: correctly handle oidc errors (Christian Kußowski)
+- fix: correctly self sign (Christian Kußowski)
+- fix: decrypt stored events in getEventById when the keys arrived later (Niklas Zender)
+- fix: do not overwrite queued to-device events of the same millisecond (Christian Kußowski)
+- fix: optionally await sync after join() and leave() (Niklas Zender)
+- fix: send the join key to the participants who just joined (td)
+- refactor: (BREAKING) replace three boxes with a single deviceKeysLists box in database (Christian Kußowski)
+- refactor: add dedicated box for last sent olm message (Christian Kußowski)
+
+## [13.0.0] 22nd September 2026
+
+- feat: add method to clear free database pages (Christian Kußowski)
+- fix: dart code linter (td)
+- fix: persist leave rooms in db corerctly (td)
+- fix: (BREAKING CHANGE) prev_content handling (Christian Kußowski)
+- refactor: drop redundant database index (Christian Kußowski)
+
+## [12.0.1] 2nd September 2026
+
+- fix: wrong if condition where rooms get removed from list even when includeLeave == true (Christian Kußowski)
+
+## [12.0.0] 2nd September 2026
+
+This version changes how left rooms are stored in the client and the archive is loaded.
+When calling `loadArchive()` it no longer caches the archived rooms internally and
+`client.getRoomById()` would no longer return such a cached room. It is up to the
+app consumer to cache them if needed at all. On the other hand the sdk now allows
+to always sync and store left rooms by default easily by just adding them in the
+sync filter to the constructor:
+
+```dart
+Client(
+  'Client Name',
+  syncFilter: Filter(room: RoomFilter(includeLeave: true)),
+  // ...
+);
+```
+
+- chore: make autoRequestProfileForMissingUsers and getDisplayNameAndAvatarFromPrevContent configurable (Christian Kußowski)
+- feat: (BREAKING) Store left rooms if syncfilter includes leave (Christian Kußowski)
+- refactor: Remove archive cache from Client (Christian Kußowski)
+
+## [11.0.0] 31st August 2026
+
+- build: update to vodozemac 0.8.0 (Christian Kußowski)
+- chore: add localization for incoming call (Christian Kußowski)
+
+## [10.2.2] 24th Auguest 2026
+
+- chore: log to-device recipients that get silently skipped (td)
+- fix: add reason why db was cleared (td)
+
+## [10.2.1] 18th August 2026
+
+- fix: ignore missing files during local file cache cleanup (Karthikeyan S)
+
+## [10.2.0] 17th August 2026
+
+- feat: add clearCryptoIdentity to CryptoSetupExtension (Karthikeyan S)
+
+## [10.1.0] 14th August 2026
+
+- build: fix workflow flutter version (Christian Kußowski)
+- fix: read fresh keys in IndexedDB Box.getAllValues (td)
+- fix: Remove port from registration redirect if its a loopback (N00byKing)
+
+## [10.0.1] 11th August 2026
+
+- fix: do not guess a file extension for video thumbnails with unknown mimetype (Cursor Agent)
+- fix: refresh DM hero avatars in partial rooms (Qays Dwekat)
+
+## [10.0.0] 7th August 2026
+
+- build: update dart vodozemac to 0.7.0 and vodozemac rust to 0.10.0 with it (Christian Kußowski)
+- chore: (BREAKING CHANGE) use dart 3.12 (td)
+- chore: export run benchmarked (Christian Kußowski)
+- chore: simplify database.getClient() (Christian Kußowski)
+- feat: (BREAKING) add ability to finish partial crypto identity initialization to initCryptoIdentity (Karthikeyan S)
+- fix: defer SSSS default key change until after UIA (Karthikeyan S)
+- fix: reactions for 1:1 livekit based calls (td)
+- fix: when parsing a 'react' command, try to convert custom emote name to MXC URL so the URL is saved as the key for the reaction event (ggurdin)
+- fix: workaround that [JSAny.dartify] on wasm could turn an int into double (Christian Kußowski)
+
+## [9.0.0] 27th July 2026
+
+- build: (BREAKING) update to matrix spec 1-19 (Christian Kußowski)
+- build: (BREAKING) update to sqlite3 (Christian Kußowski)
+- chore: forward error on bootstrap error (Christian Kußowski)
+- chore: reduce noisyness of update cache error (Christian Kußowski)
+- feat: add customVideoThumbnailGenerator callback to create video thumbnails on send (Cursor Agent)
+- feat: add flag to redactEvent with edits (Christian Kußowski)
+- feat: new helper stripKeyPreservingDefault to clear SSSS keyId secret entries alone (Karthikeyan S)
+- fix(voip): stop delayed leave heartbeat when delayed event is gone (Cursor Agent)
+- fix: allow redact-power users to end polls (MSC3381) (quantumheart)
+- fix: be less strict on http status codes for oidc (Christian Kußowski)
+- fix: make login types check optional (Christian Kußowski)
+- refactor: always fetch member list from server for first megolm session (Christian Kußowski)
+- test(polls): await expectLater before power-level mutation (quantumheart)
+
+## [8.1.0] 13th July 2026
+
+- fix: avoid concurrent modification when updating group calls (Marco Attanasio)
+- fix: clear LiveKit key debounce timestamp on dispose (Marco Attanasio)
+- fix: get user device keys for gappy syncs and partial rooms (td)
+
+## [8.0.0] 9th July 2026
+
+- chore: better error handling for soft logout (Christian Kußowski)
+- docs: correct Dart SDK version in cloud setup notes (Cursor Agent)
+- fix: do not assume room member count is 1 if absent (Christian Kußowski)
+- fix: ensure not soft logged out in pushhelper (Christian Kußowski)
+- fix: (BREAKING) Soft logout with Matrix native OIDC does not send soft_logout flag (Christian Kußowski)
+- fix: use thumbnail only if present (Christian Kußowski)
+- refactor: No longer set timeline event as state event (Christian Kußowski)
+
+## [7.5.0] 2nd July 2026
+
+- build: (BREAKING) update to matrix spec 1.18 (Christian Kußowski)
+- build: (deps): bump actions/checkout from 6 to 7 (dependabot[bot])
+- build: update dart to 3.11 and enable null aware elements in lists (Christian Kußowski)
+- build: update to matrix spec 1.17 (Christian Kußowski)
+- ci: enable sort_pub_dependencies lint (Cursor Agent)
+- fix: database operation not in transaction (Christian Kußowski)
+- fix: load keys for decryption separately for [Room].searchEvents (Karthikeyan S)
+- fix: selfSign() with passphrase fails sometimes when using existing ssss instead of just the passphrase (Christian Kußowski)
+- fix: type error in model (Christian Kußowski)
+- refactor: use new formatting for code generated files (Christian Kußowski)
+
+## [7.4.0] 23rd June 2026
+
+- feat: add skipScanner flag to download methods for per-call content scanner bypass (Khalil Amor)
+
+## [7.3.0] 18th June 2026
+
+- feat: add isValidMatrixIdStrict for spec-compliant matrix id validation (Cursor Agent)
+- fix: return null when thumbnail was not found and make cast nullable (yurtemre7)
+
+## [7.2.4] 16th June 2026
+
+- chore: Follow up actually store updated tofu state in db (Christian Kußowski)
+- fix: Allow image resizer to return new mime type (Christian Kußowski)
+
+## [7.2.3] 11th June 2026
+
+- feat: Flag cross signing keys as tofu (Christian Kußowski)
+- chore: Increase timeout for create key (Christian Kußowski)
+- fix: Do not request keys when already logged out (Christian Kußowski)
+
+## [7.2.2] 29th May 2026
+
+- fix: fail tests if they fail (#2348) (td)
+
+## [7.2.1] 28th May 2026
+
+- feat: update ssss to centralise key logic (Abrish Sabri)
+- fix: Account data not existing throws exception while function expects empty json object (Christian Kußowski)
+- fix: encryption loop iteration (Abrish Sabri)
+
+## [7.2.0] 26th May 2026
+
+- build: (deps): bump actions/checkout from 4 to 6 (dependabot[bot])
+- feat: add matrix content scanner support (Khalil)
+- fix: Actually throw error on failed download (Christian Kußowski)
+- fix: Workaround that synapse's initial sync account data may not be up to date (Christian Kußowski)
+
+## [7.1.2] 12th May 2026
+
+- fix: do not send notify rtc event in direct chats (td)
+
+## [7.1.1] 12th May 2026
+
+- fix: call delayed event canceller should not use application and actually remove it from local state on leave (td)
+- fix: Do not send dozens of key request to device messages on timeline export (krille-chan)
+- fix: Pass correct event to redaction localization (Christian Kußowski)
+
+## [7.1.0] 29th April 2026
+
+- feat: custom rooms list sorter (Karthikeyan S)
+- feat: gate LaTeX markdown parsing behind enableLatexMarkdown flag (Khalil)
+- fix: clear database if onSoftLogout fails instead of logout (td)
+- fix: fetch poll responses for fragmented timelines (Khalil)
+- fix: last event in archived rooms (td)
+- fix: null check operator in SSSS accountData parsing (Karthikeyan S)
+- fix: preserve call rejection room previews (#2322) (Yash Garg)
+
+## [7.0.0] 15th April 2026
+
+- refactor: (BREAKING) add type for power level as extension type over int (Christian Kußowski)
+- fix(voip): allow updating `application` and stop timers for cancelled delayed events (Yash Garg)
+- chore: Ignore avoid void async in webworker (Christian Kußowski)
+- feat: Store sending files in file cache for 30 days (Christian Kußowski)
+- fix: shrinkImage fail blocks sendFileEvent without ux feedback (Christian Kußowski)
+
+## [6.2.0] 13th March 2026
+
+- chore: (BREAKING) Apply default soft logout handling (Christian Kußowski)
+- chore: Add exit 0 to tear down all in bootstrap test (Christian Kußowski)
+- chore: improve to_device log lines (td)
+- chore: remove \_discoveryDataLoading dead code (Karthikeyan S)
+- feat(auth): add additionalFields support to AuthenticationData for UIA stages (arman)
+- feat: Add support for low priority room and sort rooms properly (Christian Kußowski)
+- fix: expiresIn from OIDC is in seconds not milliseconds (Christian Kußowski)
+- fix: Katex markdown syntax (Christian Kußowski)
+- fix: pass missing additional profile info to CachedProfileInformation (Christian Kußowski)
+- refactor: Make Matrix SDK Database extendable (Christian Kußowski)
+- refactor: Remove commented code (Christian Kußowski)
+- test: check if init() with waitUntilLoadCompletedLoaded hangs (Karthikeyan S)
+- test: dehydrated devices logic in synapse (Karthikeyan S)
+
 ## [6.1.1] 7th Feb 2026
 
 - fix: handle UIA case for unexpectedResponse during exception + tests
@@ -21,6 +269,7 @@
 - refactor: (BREAKING) Use unified requestAndCache method (Christian Kußowski)
 
 ## [5.0.0] 12th Jan 2026
+
 - feat: Implement MSC2964 dynamic client registration (Christian Kußowski)
 - feat: Implement MSC2964 OIDC login flow (Christian Kußowski)
 - feat: MSC4075 - MatrixRTC notification event (call ringing) (Karthikeyan S)
@@ -33,9 +282,11 @@
 - test: \[Room].isDirectChat functionality (Karthikeyan S)
 
 ## [4.1.0] 20th December 2025
+
 - refactor: Deprecated Client.customRefreshTokenLifetime in favor of method parameter (Christian Kußowski)
 
 ## [4.0.3] 17th December 2025
+
 - fix: remove call member event wrt unprotected state keys (td)
 
 ## [4.0.2] 16th December 2025
@@ -64,6 +315,7 @@ v4.0.0 It comes with some breaking changes:
 - `RelationshipType.reply` has been removed in favor of `Event.inReplyToEventId()` where you can set if you want to ignore fallbacks or not. This makes it easier to differenciate fallback replies and replies inside of a thread.
 
 #### All changes
+
 - feat: (BREAKING) Discover OIDC auth metadata on Client.checkHomeserver() (Christian Kußowski)
 - feat: Allow init with access token (Christian Kußowski)
 - feat: Implement msc 3381 polls (krille-chan)
@@ -85,6 +337,7 @@ v4.0.0 It comes with some breaking changes:
 - test: matrixRTCEventStream emitted events in a group call (Karthikeyan S)
 
 ## [3.0.1] 15th October 2025
+
 - feat: Make display sending event configurable in Room.sendEvent() (Christian Kußowski)
 - chore: tidy up call membership event (td)
 - fix: Remove avatar crashes with invalid uri (Christian Kußowski)
@@ -117,11 +370,12 @@ v4.0.0 It comes with some breaking changes:
 - chore: Revert on upload progress (Christian Kußowski)
 
 ## [2.0.1] 9th Sept 2025
+
 - fix: scheduled event list init (td)
 
 ## [2.0.0] 9th Sept 2025
 
-There have been some breaking changes to the VoIP codebase. Specifically, you will have to pass your instance of the VoIP class to existing `getCallMemberships*` functions which are an extension on the Room class. 
+There have been some breaking changes to the VoIP codebase. Specifically, you will have to pass your instance of the VoIP class to existing `getCallMemberships*` functions which are an extension on the Room class.
 
 - feat: delayed and device owned state events support for group calls (td)
 - feat: allow setting keyring size (td)
@@ -139,8 +393,8 @@ There have been some breaking changes to the VoIP codebase. Specifically, you wi
 - refactor: Restrict canRequestHistory to joined or archived rooms (Christian Kußowski)
 - refactor: Sync for unknown room in push helper and catch timeout exceptions (Christian Kußowski)
 
-
 ## [1.1.0] 14th July 2025
+
 - fix: (BREAKING) Can not logout and login again with same Client object (Christian Kußowski)
 - refactor: Clean up new dart version lints (Christian Kußowski)
 
@@ -154,6 +408,7 @@ client.database = await MatrixSdkDatabase.init(/*...*/);
 ```
 
 ## [1.0.1] 16th June 2025
+
 - chore: Add hint to init vodozemac also in native implementations (Christian Kußowski)
 - fix: exportDump and importDump and add unit tests (Christian Kußowski)
 - fix: user.canKick should be true for knocking users as well (Christian Kußowski)
@@ -231,11 +486,12 @@ This should work on Android, iOS, macOS, Linux and Windows.
 
 For web you need to compile vodozemac to wasm. [Please refer to the Vodozemac bindings documentation](https://pub.dev/packages/vodozemac#build-for-web).
 
-
 ## [0.40.2] 5th June 2025
+
 - fix: fallback on homeserver is userID null (The one with the braid)
 
 ## [0.40.1] 2nd June 2025
+
 - feat: Add logout command (Christian Kußowski)
 - feat: Switch to github flavor markdown to render checkboxes (krille-chan)
 - fix: Add missing copy json in updateInboundGroupdSessionAllowedAtIndex method (Christian Kußowski)
@@ -244,6 +500,7 @@ For web you need to compile vodozemac to wasm. [Please refer to the Vodozemac bi
 - refactor: Do not store room update for leave rooms not cached anyway (Christian Kußowski)
 
 ## [0.40.0] 9th May 2025
+
 - feat: Add localization for voice message type (Krille)
 - feat: Support fallback for threads in Event.getReplyEvent() (Krille)
 - fix: Fetch well-known from domain from userId, not from homeserver domain (krille-chan)
@@ -258,9 +515,11 @@ For web you need to compile vodozemac to wasm. [Please refer to the Vodozemac bi
 - fix: sanity if room prev_batch null, populate it (td)
 
 ## [0.39.3] 6th May 2025
+
 - fix: Do not load timeline while sync is processed (Krille)
 
 ## [0.39.2] 30th April 2025
+
 - fix: add proper description for `User` class (Yash-Garg)
 - fix: handling of existing calls in `onCallInvite` (Yash-Garg)
 - fix: make sure to keep track of aggregated events after requesting history or future (td)
@@ -305,19 +564,22 @@ For web you need to compile vodozemac to wasm. [Please refer to the Vodozemac bi
 Now you can pass a `StringBuffer` object to the command handler to pass some arbitrary data back to the caller.
 
 **Before:**
+
 ```
 addCommand('newCommand', (CommandArgs args){});
 ```
 
 **After:**
+
 ```
 addCommand('newCommand', (CommandArgs args, StringBuffer? stdout){});
 ```
 
-In order to use the stdout, you should create a `StringBuffer` stdout object and 
+In order to use the stdout, you should create a `StringBuffer` stdout object and
 pass it to the `parseAndRunCommand` method or `sendTextEvent` (that uses `parseAndRunCommand` internally).
 
 Like this:
+
 ```
 final stdout = StringBuffer();
 
@@ -343,6 +605,7 @@ if(output != null) {
 ```
 
 ### All changes:
+
 - feat: (BREAKING) Make share keys with logic configurable (Krille)
 - feat: BREAKING improve command_extension (The one with the braid)
 - fix: Megolm sessions become invalid after restarting client (Krille)
@@ -408,6 +671,7 @@ trigger a notification.
 #### How to migrate from onMigration to onInitStateChanged
 
 **Before:**
+
 ```dart
 Client('Name', onMigration: () {
   print('Migrating now....');
@@ -439,8 +703,9 @@ Client('Name', onInitStateChanged: (state) {
 - refactor: Do not set the deprecated dont_notify action in push rules (Krille)
 - refactor: Fix new lints from flutter 3.27 (Krille)
 - refactor: Remove unnecessary roomId parameter from decryptRoomEvent method (Krille)
- 
+
 ## [0.35.0] 11th November 2024
+
 Fixes a minor performance leak where the app re-requests the member list of all encrypted rooms.
 For this the parameter `cache` in `Room.requestParticipants()` is now also
 responsible to store the member data in the database. Also it is not `true` by default anymore for
@@ -452,6 +717,7 @@ unencrypted rooms.
 - chore: add require trailing comma lint (Mohammad Reza Moradi)
 
 ## [0.34.0] 21st Oct 2024
+
 - feat: add equality and hashCode overrides for autogenerated models (BREAKING CHANGE) (td)
 - feat: v1.12 spec endpoints support (BREAKING CHANGE) (td)
 - fix: (BREAKING) Change power level without changing memory (Krille)
@@ -509,7 +775,7 @@ unencrypted rooms.
 - fix: Call logout on soft logout fail (Krille)
 - fix: don't restart github action service after apt install (Nicolas Werner)
 - fix: leave->invite in the same sync would hide the invite (Nicolas Werner)
--  (BREAKING) fix: update last event properly on cancel send (td)
+- (BREAKING) fix: update last event properly on cancel send (td)
 
 ## [0.31.0] 28th July 2024
 
@@ -533,6 +799,7 @@ unencrypted rooms.
 - refactor: Remove Matrix Connection Exception (Krille)
 
 ## [0.29.13] 24th June 2024
+
 - chore: allow clients to set their own voip key delays (td)
 - chore: use not cancelled in actions instead of always (td)
 - fix: Return empty uri instead of original uri if uri is not mxc (Krille)

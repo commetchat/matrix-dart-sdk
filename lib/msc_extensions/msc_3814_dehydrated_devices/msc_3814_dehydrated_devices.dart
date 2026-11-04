@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /// Extensions for the experimental dehydrated devices MSC, which allows
 /// receiving encrypted messages while you have no devices signed in.
 library;
@@ -5,12 +9,12 @@ library;
 import 'dart:convert';
 import 'dart:math';
 
-import 'package:matrix/encryption.dart';
-import 'package:matrix/matrix.dart';
-import 'package:matrix/msc_extensions/msc_3814_dehydrated_devices/api.dart';
-import 'package:matrix/msc_extensions/msc_3814_dehydrated_devices/model/dehydrated_device.dart';
-import 'package:matrix/msc_extensions/msc_3814_dehydrated_devices/model/dehydrated_device_events.dart';
-import 'package:matrix/src/utils/crypto/crypto.dart' as uc;
+import '../../encryption.dart';
+import '../../matrix.dart';
+import '../../src/utils/crypto/crypto.dart' as uc;
+import 'api.dart';
+import 'model/dehydrated_device.dart';
+import 'model/dehydrated_device_events.dart';
 
 extension DehydratedDeviceHandler on Client {
   static const Set<String> _oldDehydratedDeviceAlgorithms = {
@@ -45,8 +49,9 @@ extension DehydratedDeviceHandler on Client {
       }
 
       // Just throw away the old device if it is using an old algoritm. In the future we could try to still use it and then migrate it, but currently that is not worth the effort
-      if (_oldDehydratedDeviceAlgorithms
-          .contains(device.deviceData?.tryGet<String>('algorithm'))) {
+      if (_oldDehydratedDeviceAlgorithms.contains(
+        device.deviceData?.tryGet<String>('algorithm'),
+      )) {
         await _uploadNewDevice(secureStorage);
         return;
       }
@@ -70,12 +75,14 @@ extension DehydratedDeviceHandler on Client {
         return;
       }
 
-      final pickleDeviceKey =
-          await secureStorage.getStored(_ssssSecretNameForDehydratedDevice);
+      final pickleDeviceKey = await secureStorage.getStored(
+        _ssssSecretNameForDehydratedDevice,
+      );
       final pickledDevice = device.deviceData?.tryGet<String>('device');
       if (pickledDevice == null) {
-        Logs()
-            .w('Dehydrated device ${device.deviceId} is invalid, replacing it');
+        Logs().w(
+          'Dehydrated device ${device.deviceId} is invalid, replacing it',
+        );
         await _uploadNewDevice(secureStorage);
         return;
       }
@@ -93,8 +100,9 @@ extension DehydratedDeviceHandler on Client {
 
         if (dehydratedDeviceIdentity.curve25519Key != encryption.identityKey ||
             dehydratedDeviceIdentity.ed25519Key != encryption.fingerprintKey) {
-          Logs()
-              .w('Invalid dehydrated device ${device.deviceId}, replacing it');
+          Logs().w(
+            'Invalid dehydrated device ${device.deviceId}, replacing it',
+          );
           await encryption.dispose();
           await _uploadNewDevice(secureStorage);
           return;
@@ -122,17 +130,16 @@ extension DehydratedDeviceHandler on Client {
         } while (events.events?.isNotEmpty == true);
 
         // make sure the sessions we just received get uploaded before we upload a new device (which deletes the old device).
-        await this
-            .encryption
-            ?.keyManager
-            .uploadInboundGroupSessions(skipIfInProgress: false);
+        await this.encryption?.keyManager.uploadInboundGroupSessions(
+          skipIfInProgress: false,
+        );
 
         await _uploadNewDevice(secureStorage);
       } finally {
         await encryption.dispose();
       }
     } catch (e) {
-      Logs().w('Exception while handling dehydrated devices: ${e.toString()}');
+      Logs().w('Exception while handling dehydrated devices: $e');
       return;
     }
   }
@@ -143,8 +150,9 @@ extension DehydratedDeviceHandler on Client {
     try {
       String? pickleDeviceKey;
       try {
-        pickleDeviceKey =
-            await secureStorage.getStored(_ssssSecretNameForDehydratedDevice);
+        pickleDeviceKey = await secureStorage.getStored(
+          _ssssSecretNameForDehydratedDevice,
+        );
       } catch (_) {
         Logs().i('Dehydrated device key not found, creating new one.');
         pickleDeviceKey = base64.encode(uc.secureRandomBytes(128));
@@ -164,7 +172,7 @@ extension DehydratedDeviceHandler on Client {
           (_) => chars.codeUnitAt(rnd.nextInt(chars.length)),
         ),
       );
-      final String device = 'FAM$deviceIdSuffix';
+      final device = 'FAM$deviceIdSuffix';
 
       // Generate a new olm account for the dehydrated device.
       try {

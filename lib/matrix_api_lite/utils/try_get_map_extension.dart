@@ -1,29 +1,10 @@
-/* MIT License
-* 
-* Copyright (C) 2019, 2020, 2021 Famedly GmbH
-* 
-* Permission is hereby granted, free of charge, to any person obtaining a copy
-* of this software and associated documentation files (the "Software"), to deal
-* in the Software without restriction, including without limitation the rights
-* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-* copies of the Software, and to permit persons to whom the Software is
-* furnished to do so, subject to the following conditions:
-* 
-* The above copyright notice and this permission notice shall be included in all
-* copies or substantial portions of the Software.
-* 
-* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-* SOFTWARE.
-*/
+// SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 import 'dart:core';
 
-import 'package:matrix/matrix_api_lite/utils/logs.dart';
+import 'logs.dart';
 
 abstract class TryGet {
   void call(String key, Type expected, Type actual);
@@ -39,8 +20,8 @@ class _RequiredLog implements TryGet {
   const _RequiredLog();
   @override
   void call(String key, Type expected, Type actual) => Logs().w(
-        'Expected required "$expected" in event content for the Key "$key" but got "$actual" at ${StackTrace.current.firstLine}',
-      );
+    'Expected required "$expected" in event content for the Key "$key" but got "$actual" at ${StackTrace.current.firstLine}',
+  );
 }
 
 class _OptionalLog implements TryGet {
@@ -63,7 +44,7 @@ class _SilentLog implements TryGet {
 
 extension TryGetMapExtension on Map<String, Object?> {
   T? tryGet<T extends Object>(String key, [TryGet log = TryGet.optional]) {
-    final Object? value = this[key];
+    final value = this[key];
     if (value is! T) {
       log(key, T, value.runtimeType);
       return null;
@@ -72,7 +53,7 @@ extension TryGetMapExtension on Map<String, Object?> {
   }
 
   List<T>? tryGetList<T>(String key, [TryGet log = TryGet.optional]) {
-    final Object? value = this[key];
+    final value = this[key];
     if (value is! List) {
       log(key, T, value.runtimeType);
       return null;
@@ -89,7 +70,7 @@ extension TryGetMapExtension on Map<String, Object?> {
   }
 
   Map<A, B>? tryGetMap<A, B>(String key, [TryGet log = TryGet.optional]) {
-    final Object? value = this[key];
+    final value = this[key];
     if (value is! Map) {
       log(key, <A, B>{}.runtimeType, value.runtimeType);
       return null;
@@ -122,7 +103,7 @@ extension on StackTrace {
     return lines.length >= 3
         ? lines[2].replaceFirst('#2      ', '')
         : lines.isNotEmpty
-            ? lines.first
-            : '(unknown position)';
+        ? lines.first
+        : '(unknown position)';
   }
 }

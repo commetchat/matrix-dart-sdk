@@ -1,28 +1,14 @@
-/*
- *   Famedly Matrix SDK
- *   Copyright (C) 2019, 2020, 2021 Famedly GmbH
- *
- *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU Affero General Public License as
- *   published by the Free Software Foundation, either version 3 of the
- *   License, or (at your option) any later version.
- *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *   GNU Affero General Public License for more details.
- *
- *   You should have received a copy of the GNU Affero General Public License
- *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 import 'dart:async';
 import 'dart:convert';
 
 import 'package:collection/collection.dart';
 
-import 'package:matrix/matrix.dart';
-import 'package:matrix/src/models/timeline_chunk.dart';
+import '../matrix.dart';
+import 'models/timeline_chunk.dart';
 
 /// Represents the timeline of a room. The callback [onUpdate] will be triggered
 /// automatically. The initial
@@ -30,6 +16,8 @@ import 'package:matrix/src/models/timeline_chunk.dart';
 
 class Timeline {
   final Room room;
+
+  /// newest events will be at index 0 apparently
   List<Event> get events => chunk.events;
 
   /// Map of event ID to map of type to set of aggregated events
@@ -53,6 +41,13 @@ class Timeline {
   bool isFragmentedTimeline = false;
 
   final Map<String, Event> _eventCache = {};
+
+  /// Tracks in-flight and completed relation fetches. A present key means
+  /// the fetch is either in progress or already done — concurrent callers
+  /// await the same future, and later callers get an already-completed
+  /// future (no-op). The key is removed on failure so the fetch can be
+  /// retried.
+  final Map<String, Future<void>> _relationRequests = {};
 
   TimelineChunk chunk;
 
@@ -107,6 +102,9 @@ class Timeline {
       direction: Direction.b,
       historyCount: historyCount,
       filter: filter,
+      inMemoryOnly:
+          room.membership == Membership.leave &&
+          room.client.syncFilter.room?.includeLeave != true,
     );
     isRequestingHistory = false;
   }
@@ -141,6 +139,7 @@ class Timeline {
     int historyCount = Room.defaultHistoryCount,
     required Direction direction,
     StateFilter? filter,
+    bool inMemoryOnly = false,
   }) async {
     onUpdate?.call();
 
@@ -163,8 +162,10 @@ class Timeline {
           if (room.getState(EventTypes.RoomMember, event.senderId) != null) {
             continue;
           }
-          final dbUser =
-              await room.client.database.getUser(event.senderId, room);
+          final dbUser = await room.client.database.getUser(
+            event.senderId,
+            room,
+          );
           if (dbUser != null) room.setState(dbUser);
         }
 
@@ -178,7 +179,7 @@ class Timeline {
         } else {
           events.insertAll(0, eventsFromStore);
           final startIndex = eventsFromStore.length;
-          final endIndex = 0;
+          const endIndex = 0;
           for (var i = startIndex; i > endIndex; i--) {
             onInsert?.call(i);
           }
@@ -187,7 +188,7 @@ class Timeline {
         _fetchedAllDatabaseEvents = true;
         Logs().i('No more events found in the store. Request from server...');
 
-        if (isFragmentedTimeline) {
+        if (isFragmentedTimeline || inMemoryOnly) {
           await getRoomEvents(
             historyCount: historyCount,
             direction: direction,
@@ -265,8 +266,9 @@ class Timeline {
       }
     }
 
-    final newEvents =
-        resp.chunk.map((e) => Event.fromMatrixEvent(e, room)).toList();
+    final newEvents = resp.chunk
+        .map((e) => Event.fromMatrixEvent(e, room))
+        .toList();
 
     if (!allowNewEvent) {
       if (resp.start == resp.end ||
@@ -313,6 +315,17 @@ class Timeline {
       }
     }
 
+    await Future.wait(
+      newEvents
+          .where((event) => event.type == PollEventContent.startType)
+          .map(
+            (event) => fetchAggregatedEvents(
+              event.eventId,
+              RelationshipTypes.reference,
+            ),
+          ),
+    );
+
     if (onUpdate != null) {
       onUpdate!();
     }
@@ -329,16 +342,10 @@ class Timeline {
     required this.chunk,
   }) {
     timelineSub = room.client.onTimelineEvent.stream.listen(
-      (event) => _handleEventUpdate(
-        event,
-        EventUpdateType.timeline,
-      ),
+      (event) => _handleEventUpdate(event, EventUpdateType.timeline),
     );
     historySub = room.client.onHistoryEvent.stream.listen(
-      (event) => _handleEventUpdate(
-        event,
-        EventUpdateType.history,
-      ),
+      (event) => _handleEventUpdate(event, EventUpdateType.history),
     );
 
     // If the timeline is limited we want to clear our events cache
@@ -346,10 +353,12 @@ class Timeline {
         .where((sync) => sync.rooms?.join?[room.id]?.timeline?.limited == true)
         .listen(_removeEventsNotInThisSync);
 
-    sessionIdReceivedSub =
-        room.onSessionKeyReceived.stream.listen(_sessionKeyReceived);
-    cancelSendEventSub =
-        room.client.onCancelSendEvent.stream.listen(_cleanUpCancelledEvent);
+    sessionIdReceivedSub = room.onSessionKeyReceived.stream.listen(
+      _sessionKeyReceived,
+    );
+    cancelSendEventSub = room.client.onCancelSendEvent.stream.listen(
+      _cleanUpCancelledEvent,
+    );
 
     // we want to populate our aggregated events
     for (final e in events) {
@@ -396,7 +405,7 @@ class Timeline {
     cancelSendEventSub?.cancel();
   }
 
-  void _sessionKeyReceived(String sessionId) async {
+  Future<void> _sessionKeyReceived(String sessionId) async {
     var decryptAtLeastOneEvent = false;
     Future<void> decryptFn() async {
       final encryption = room.client.encryption;
@@ -451,8 +460,9 @@ class Timeline {
 
   /// Set the read marker to the last synced event in this timeline.
   Future<void> setReadMarker({String? eventId, bool? public}) async {
-    eventId ??=
-        events.firstWhereOrNull((event) => event.status.isSynced)?.eventId;
+    eventId ??= events
+        .firstWhereOrNull((event) => event.status.isSynced)
+        ?.eventId;
     if (eventId == null) return;
     return room.setReadMarker(eventId, mRead: eventId, public: public);
   }
@@ -501,8 +511,10 @@ class Timeline {
     if (relationshipType == null || relationshipEventId == null) {
       return; // nothing to do
     }
-    final e = (aggregatedEvents[relationshipEventId] ??=
-        <String, Set<Event>>{})[relationshipType] ??= <Event>{};
+    final e =
+        (aggregatedEvents[relationshipEventId] ??=
+                <String, Set<Event>>{})[relationshipType] ??=
+            <Event>{};
     // remove a potential old event
     _removeEventFromSet(e, event);
     // add the new one
@@ -522,6 +534,101 @@ class Timeline {
       for (final e in types.values) {
         _removeEventFromSet(e, event);
       }
+    }
+  }
+
+  /// Fetches related events from the server using the `/relations` API and
+  /// injects them into [aggregatedEvents]. Useful for fragmented timelines
+  /// where aggregated events (e.g. poll responses) may not be in the
+  /// current timeline chunk.
+  ///
+  /// Paginates through all results and deduplicates via [addAggregatedEvent].
+  /// Skips if this relation has already been fetched. Concurrent calls for the
+  /// same relation are coalesced into a single request.
+  Future<void> fetchAggregatedEvents(
+    String eventId,
+    String relType, {
+    String? eventType,
+  }) async {
+    final key = eventType != null
+        ? '$eventId:$relType:$eventType'
+        : '$eventId:$relType';
+
+    if (_relationRequests.containsKey(key)) return _relationRequests[key]!;
+
+    final future = _doFetchAggregatedEvents(
+      eventId,
+      relType,
+      eventType: eventType,
+    );
+    _relationRequests[key] = future;
+    try {
+      await future;
+    } catch (_) {
+      unawaited(_relationRequests.remove(key));
+    }
+  }
+
+  Future<void> _doFetchAggregatedEvents(
+    String eventId,
+    String relType, {
+    String? eventType,
+  }) async {
+    try {
+      String? nextBatch;
+      do {
+        final GetRelatingEventsWithRelTypeResponse resp;
+        if (eventType != null) {
+          final r = await room.client.getRelatingEventsWithRelTypeAndEventType(
+            room.id,
+            eventId,
+            relType,
+            eventType,
+            from: nextBatch,
+            limit: 50,
+          );
+          // Both response types share the same shape
+          resp = GetRelatingEventsWithRelTypeResponse(
+            chunk: r.chunk,
+            nextBatch: r.nextBatch,
+            prevBatch: r.prevBatch,
+          );
+        } else {
+          resp = await room.client.getRelatingEventsWithRelType(
+            room.id,
+            eventId,
+            relType,
+            from: nextBatch,
+            limit: 50,
+          );
+        }
+
+        final newEvents = resp.chunk
+            .map((e) => Event.fromMatrixEvent(e, room))
+            .toList();
+
+        // Decrypt if needed
+        if (room.encrypted && room.client.encryptionEnabled) {
+          for (var i = 0; i < newEvents.length; i++) {
+            if (newEvents[i].type == EventTypes.Encrypted) {
+              newEvents[i] = await room.client.encryption!.decryptRoomEvent(
+                newEvents[i],
+              );
+            }
+          }
+        }
+
+        for (final event in newEvents) {
+          addAggregatedEvent(event);
+        }
+
+        nextBatch = resp.nextBatch;
+      } while (nextBatch != null);
+
+      onUpdate?.call();
+    } catch (e, s) {
+      Logs().w('Failed to fetch aggregated events for $eventId', e, s);
+      rethrow;
     }
   }
 
@@ -563,10 +670,7 @@ class Timeline {
         onChange?.call(i);
       } else {
         if (type == EventUpdateType.history &&
-            events.indexWhere(
-                  (e) => e.eventId == event.eventId,
-                ) !=
-                -1) {
+            events.indexWhere((e) => e.eventId == event.eventId) != -1) {
           return;
         }
         var index = events.length;
@@ -618,16 +722,15 @@ class Timeline {
     String? sinceEventId,
     int? limit,
     bool Function(Event)? searchFunc,
-  }) =>
-      startSearch(
-        searchTerm: searchTerm,
-        requestHistoryCount: requestHistoryCount,
-        maxHistoryRequests: maxHistoryRequests,
-        // ignore: deprecated_member_use_from_same_package
-        sinceEventId: sinceEventId,
-        limit: limit,
-        searchFunc: searchFunc,
-      ).map((result) => result.$1);
+  }) => startSearch(
+    searchTerm: searchTerm,
+    requestHistoryCount: requestHistoryCount,
+    maxHistoryRequests: maxHistoryRequests,
+    // ignore: deprecated_member_use_from_same_package
+    sinceEventId: sinceEventId,
+    limit: limit,
+    searchFunc: searchFunc,
+  ).map((result) => result.$1);
 
   /// Searches [searchTerm] in this timeline. It first searches in the
   /// cache, then in the database and then on the server. The search can
@@ -681,8 +784,10 @@ class Timeline {
     // Search on the server
     prevBatch ??= room.prev_batch;
     if (sinceEventId != null) {
-      prevBatch =
-          (await room.client.getEventContext(room.id, sinceEventId)).end;
+      prevBatch = (await room.client.getEventContext(
+        room.id,
+        sinceEventId,
+      )).end;
     }
     final encryption = room.client.encryption;
     for (var i = 0; i < maxHistoryRequests; i++) {

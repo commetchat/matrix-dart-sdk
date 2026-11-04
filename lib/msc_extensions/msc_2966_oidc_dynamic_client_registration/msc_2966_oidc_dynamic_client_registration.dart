@@ -1,6 +1,10 @@
+// SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import 'dart:convert';
 
-import 'package:matrix/matrix.dart';
+import '../../matrix.dart';
 
 extension Msc2966OidcDynamicClientRegistration on Client {
   /// Registers a new OIDC Client to retrieve a Client ID for OIDC login.
@@ -26,6 +30,8 @@ extension Msc2966OidcDynamicClientRegistration on Client {
     if (redirectUris.isEmpty) {
       throw Exception('At least one redirect URI is required!');
     }
+
+    const loopbackHosts = {'localhost', '127.0.0.1', '[::1]'};
     switch (applicationType) {
       case OidcApplicationType.web:
         if (redirectUris.any((uri) => uri.scheme != 'https')) {
@@ -40,19 +46,34 @@ extension Msc2966OidcDynamicClientRegistration on Client {
         }
         break;
       case OidcApplicationType.native:
-        const allowedHosts = {'localhost', '127.0.0.1', '[::1]'};
         if (redirectUris.any(
-          (uri) => uri.scheme == 'http' && !allowedHosts.contains(uri.host),
+          (uri) => uri.scheme == 'http' && !loopbackHosts.contains(uri.host),
         )) {
           throw Exception(
-            'For http loopback interfaces, the host must be one of $allowedHosts',
+            'For http loopback interfaces, the host must be one of $loopbackHosts',
           );
         }
         break;
     }
+
+    // Remove port from address during registration if its a loopback
+    // Some homeservers will reject authentication otherwise.
+    // Setting the port to the default 80 removes it from toString()
+    final registrationRedirectUris = redirectUris
+        .map(
+          (uri) =>
+              applicationType == OidcApplicationType.native &&
+                  uri.scheme == 'http'
+              ? uri.replace(port: 80)
+              : uri,
+        )
+        .toList();
+
     final body = <String, Object?>{
-      if (additionalProperties != null) ...additionalProperties,
-      'redirect_uris': redirectUris.map((uri) => uri.toString()).toList(),
+      ...?additionalProperties,
+      'redirect_uris': registrationRedirectUris
+          .map((uri) => uri.toString())
+          .toList(),
       'token_endpoint_auth_method': tokenEndpointAuthMethod,
       'response_types': responseTypes,
       'grant_types': grantTypes,
@@ -68,10 +89,12 @@ extension Msc2966OidcDynamicClientRegistration on Client {
       body: jsonEncode(body),
       headers: {'content-type': 'application/json'},
     );
+    if (response.statusCode >= 400) {
+      unexpectedResponse(response, response.bodyBytes);
+    }
     if (response.statusCode != 201) {
-      unexpectedResponse(
-        response,
-        response.bodyBytes,
+      Logs().w(
+        'Expected a status code of 201 but got ${response.statusCode} for OIDC client registration.',
       );
     }
     final responseString = utf8.decode(response.bodyBytes);
@@ -96,15 +119,15 @@ class OidcClientData {
   });
 
   factory OidcClientData.fromJson(Map<String, Object?> json) => OidcClientData(
-        clientId: json['client_id'] as String,
-        clientIdIssuedAt: json['client_id_issued_at'] is int
-            ? DateTime.fromMillisecondsSinceEpoch(
-                json['client_id_issued_at'] as int,
-              )
-            : null,
-        clientInformation: OidcClientInformation.fromJson(json),
-        additionalProperties: json,
-      );
+    clientId: json['client_id'] as String,
+    clientIdIssuedAt: json['client_id_issued_at'] is int
+        ? DateTime.fromMillisecondsSinceEpoch(
+            json['client_id_issued_at'] as int,
+          )
+        : null,
+    clientInformation: OidcClientInformation.fromJson(json),
+    additionalProperties: json,
+  );
 
   Map<String, Object?> toJson() => additionalProperties;
 }
@@ -159,7 +182,7 @@ class OidcClientInformation {
     final policyUri = this.policyUri;
     final localeSuffix = locale == null ? '' : '#$locale';
     return {
-      if (clientName != null) 'client_name$localeSuffix': clientName,
+      'client_name$localeSuffix': ?clientName,
       'client_uri$localeSuffix': clientUri.toString(),
       if (logoUri != null) 'logo_uri$localeSuffix': logoUri.toString(),
       if (tosUri != null) 'tos_uri$localeSuffix': tosUri.toString(),

@@ -1,25 +1,13 @@
-/*
- *   Famedly Matrix SDK
- *   Copyright (C) 2020 Famedly GmbH
- *
- *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU Affero General Public License as
- *   published by the Free Software Foundation, either version 3 of the
- *   License, or (at your option) any later version.
- *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *   GNU Affero General Public License for more details.
- *
- *   You should have received a copy of the GNU Affero General Public License
- *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2019-Present, 2020 Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
+import 'dart:convert';
+
+import 'package:matrix/matrix.dart';
 import 'package:test/test.dart';
 import 'package:vodozemac/vodozemac.dart' as vod;
 
-import 'package:matrix/matrix.dart';
 import '../fake_client.dart';
 
 void main() {
@@ -27,16 +15,13 @@ void main() {
     Logs().level = Level.error;
 
     late Client client;
-    final roomId = '!726s6s6q:example.com';
+    const roomId = '!726s6s6q:example.com';
     late Room room;
     late Map<String, dynamic> payload;
     final now = DateTime.now();
 
     setUpAll(() async {
-      await vod.init(
-        wasmPath: './pkg/',
-        libraryPath: './rust/target/debug/',
-      );
+      await vod.init(wasmPath: './pkg/', libraryPath: './rust/target/debug/');
 
       client = await getClient();
       room = client.getRoomById(roomId)!;
@@ -63,8 +48,9 @@ void main() {
         eventId: '\$event',
         senderId: client.userID!,
       );
-      final decryptedEvent =
-          await client.encryption!.decryptRoomEvent(encryptedEvent);
+      final decryptedEvent = await client.encryption!.decryptRoomEvent(
+        encryptedEvent,
+      );
       expect(decryptedEvent.type, 'm.room.message');
       expect(decryptedEvent.content['msgtype'], 'm.text');
       expect(decryptedEvent.content['text'], 'Hello foxies!');
@@ -82,8 +68,9 @@ void main() {
         eventId: '\$event',
         senderId: client.userID!,
       );
-      final decryptedEvent =
-          await client.encryption!.decryptRoomEvent(encryptedEvent);
+      final decryptedEvent = await client.encryption!.decryptRoomEvent(
+        encryptedEvent,
+      );
       expect(decryptedEvent.type, 'm.room.message');
       expect(decryptedEvent.content['msgtype'], 'm.text');
       expect(decryptedEvent.content['text'], 'Hello foxies!');
@@ -100,12 +87,59 @@ void main() {
         eventId: '\$event',
         senderId: '@alice:example.com',
       );
-      final decryptedEvent =
-          await client.encryption!.decryptRoomEvent(encryptedEvent);
+      final decryptedEvent = await client.encryption!.decryptRoomEvent(
+        encryptedEvent,
+      );
       expect(decryptedEvent.type, 'm.room.message');
       expect(decryptedEvent.content['msgtype'], 'm.text');
       expect(decryptedEvent.content['text'], 'Hello foxies!');
       await client.encryption!.decryptRoomEvent(encryptedEvent, store: true);
+    });
+
+    test('getEventById decrypts events stored before the keys', () async {
+      final session = vod.GroupSession();
+      final sessionKey = session.sessionKey;
+      final event = Event(
+        type: EventTypes.Encrypted,
+        content: {
+          'algorithm': AlgorithmTypes.megolmV1AesSha2,
+          'ciphertext': session.encrypt(
+            json.encode({
+              'type': EventTypes.Message,
+              'content': {'msgtype': 'm.text', 'body': 'Late keys'},
+              'room_id': roomId,
+            }),
+          ),
+          'sender_key': client.identityKey,
+          'session_id': session.sessionId,
+        },
+        room: room,
+        originServerTs: now,
+        eventId: '\$late_keys',
+        senderId: '@alice:example.com',
+      );
+      await client.database.storeEventUpdate(
+        roomId,
+        event,
+        EventUpdateType.timeline,
+        client,
+      );
+      expect((await room.getEventById(event.eventId))?.type, event.type);
+
+      await client.encryption!.keyManager.setInboundGroupSession(
+        roomId,
+        session.sessionId,
+        client.identityKey,
+        {
+          'algorithm': AlgorithmTypes.megolmV1AesSha2,
+          'room_id': roomId,
+          'session_id': session.sessionId,
+          'session_key': sessionKey,
+        },
+      );
+      final decrypted = await room.getEventById(event.eventId);
+      expect(decrypted?.type, EventTypes.Message);
+      expect(decrypted?.body, 'Late keys');
     });
 
     test('dispose client', () async {

@@ -1,21 +1,21 @@
-import 'package:matrix/matrix.dart';
+// SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import '../../../matrix.dart';
 
 class CallParticipant {
   final VoIP voip;
   final String userId;
   final String? deviceId;
 
-  CallParticipant(
-    this.voip, {
-    required this.userId,
-    this.deviceId,
-  });
+  CallParticipant(this.voip, {required this.userId, this.deviceId});
 
   bool get isLocal =>
       userId == voip.client.userID && deviceId == voip.client.deviceID;
 
   String get id {
-    String pid = userId;
+    var pid = userId;
     if (deviceId != null) {
       pid += ':$deviceId';
     }

@@ -1,6 +1,10 @@
+// SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import 'package:webrtc_interface/webrtc_interface.dart';
 
-import 'package:matrix/matrix.dart';
+import '../../../matrix.dart';
 
 /// Delegate WebRTC basic functionality.
 abstract class WebRTCDelegate {

@@ -1,10 +1,14 @@
+// SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import 'dart:async';
 import 'dart:js_interop';
 
 import 'package:web/web.dart';
 
-import 'package:matrix/matrix_api_lite/utils/logs.dart';
-import 'package:matrix/src/database/zone_transaction_mixin.dart';
+import '../../matrix_api_lite/utils/logs.dart';
+import 'zone_transaction_mixin.dart';
 
 /// Key-Value store abstraction over IndexedDB so that the sdk database can use
 /// a single interface for all platforms. API is inspired by Hive.
@@ -28,11 +32,9 @@ class BoxCollection with ZoneTransactionMixin {
     final request = idbFactory.open(name, version);
 
     request.onerror = (Event event) {
-      Logs().e(
-        '[IndexedDBBox] Error loading database - ${request.error?.toString()}',
-      );
+      Logs().e('[IndexedDBBox] Error loading database - ${request.error}');
       dbOpenCompleter.completeError(
-        'Error loading database - ${request.error?.toString()}',
+        'Error loading database - ${request.error}',
       );
     }.toJS;
 
@@ -41,8 +43,9 @@ class BoxCollection with ZoneTransactionMixin {
 
       db.onerror = (Event event) {
         Logs().e('[IndexedDBBox] [onupgradeneeded] Error loading database');
-        dbOpenCompleter
-            .completeError('Error loading database onupgradeneeded.');
+        dbOpenCompleter.completeError(
+          'Error loading database onupgradeneeded.',
+        );
       }.toJS;
 
       for (final name in boxNames) {
@@ -73,45 +76,41 @@ class BoxCollection with ZoneTransactionMixin {
   Future<void> transaction(
     Future<void> Function() action, {
     List<String>? boxNames,
-    bool readOnly = false,
-  }) =>
-      zoneTransaction(() async {
-        final txnCache = _txnCache = [];
-        await action();
-        final cache =
-            List<Future<void> Function(IDBTransaction txn)>.from(txnCache);
-        _txnCache = null;
-        if (cache.isEmpty) return;
+  }) => zoneTransaction(() async {
+    final txnCache = _txnCache = [];
+    await action();
+    final cache = List<Future<void> Function(IDBTransaction txn)>.from(
+      txnCache,
+    );
+    _txnCache = null;
+    if (cache.isEmpty) return;
 
-        final transactionCompleter = Completer<void>();
-        final txn = _db.transaction(
-          boxNames?.jsify() ?? _db.objectStoreNames,
-          readOnly ? 'readonly' : 'readwrite',
-        );
-        for (final fun in cache) {
-          // The IDB methods return a Future in Dart but must not be awaited in
-          // order to have an actual transaction. They must only be performed and
-          // then the transaction object must call `txn.completed;` which then
-          // returns the actual future.
-          // https://developer.mozilla.org/en-US/docs/Web/API/IDBTransaction
-          unawaited(fun(txn));
-        }
+    final transactionCompleter = Completer<void>();
+    final txn = _db.transaction(
+      boxNames?.jsify() ?? _db.objectStoreNames,
+      'readwrite',
+    );
+    for (final fun in cache) {
+      // The IDB methods return a Future in Dart but must not be awaited in
+      // order to have an actual transaction. They must only be performed and
+      // then the transaction object must call `txn.completed;` which then
+      // returns the actual future.
+      // https://developer.mozilla.org/en-US/docs/Web/API/IDBTransaction
+      unawaited(fun(txn));
+    }
 
-        txn.onerror = (Event event) {
-          Logs().e(
-            '[IndexedDBBox] [transaction] Error - ${txn.error?.toString()}',
-          );
-          transactionCompleter.completeError(
-            'Transaction not completed due to an error - ${txn.error?.toString()}'
-                .toJS,
-          );
-        }.toJS;
+    txn.onerror = (Event event) {
+      Logs().e('[IndexedDBBox] [transaction] Error - ${txn.error}');
+      transactionCompleter.completeError(
+        'Transaction not completed due to an error - ${txn.error}'.toJS,
+      );
+    }.toJS;
 
-        txn.oncomplete = (Event event) {
-          transactionCompleter.complete();
-        }.toJS;
-        return transactionCompleter.future;
-      });
+    txn.oncomplete = (Event event) {
+      transactionCompleter.complete();
+    }.toJS;
+    return transactionCompleter.future;
+  });
 
   Future<void> clear() async {
     final transactionCompleter = Completer();
@@ -121,10 +120,10 @@ class BoxCollection with ZoneTransactionMixin {
       final request = txn.objectStore(name).clear();
       request.onerror = (Event event) {
         Logs().e(
-          '[IndexedDBBox] [clear] Object store clear error - ${request.error?.toString()}',
+          '[IndexedDBBox] [clear] Object store clear error - ${request.error}',
         );
         objStoreClearCompleter.completeError(
-          'Object store clear not completed due to an error - ${request.error?.toString()}'
+          'Object store clear not completed due to an error - ${request.error}'
               .toJS,
         );
       }.toJS;
@@ -134,9 +133,9 @@ class BoxCollection with ZoneTransactionMixin {
       unawaited(objStoreClearCompleter.future);
     }
     txn.onerror = (Event event) {
-      Logs().e('[IndexedDBBox] [clear] Error - ${txn.error?.toString()}');
+      Logs().e('[IndexedDBBox] [clear] Error - ${txn.error}');
       transactionCompleter.completeError(
-        'DB clear transaction not completed due to an error - ${txn.error?.toString()}'
+        'DB clear transaction not completed due to an error - ${txn.error}'
             .toJS,
       );
     }.toJS;
@@ -155,14 +154,12 @@ class BoxCollection with ZoneTransactionMixin {
   Future<void> deleteDatabase(String name, [dynamic factory]) async {
     await close();
     final deleteDatabaseCompleter = Completer();
-    final request =
-        ((factory ?? window.indexedDB) as IDBFactory).deleteDatabase(name);
+    final request = ((factory ?? window.indexedDB) as IDBFactory)
+        .deleteDatabase(name);
     request.onerror = (Event event) {
-      Logs().e(
-        '[IndexedDBBox] [deleteDatabase] Error - ${request.error?.toString()}',
-      );
+      Logs().e('[IndexedDBBox] [deleteDatabase] Error - ${request.error}');
       deleteDatabaseCompleter.completeError(
-        'Error deleting database - ${request.error?.toString()}'.toJS,
+        'Error deleting database - ${request.error}'.toJS,
       );
     }.toJS;
     request.onsuccess = (Event event) {
@@ -190,24 +187,32 @@ class Box<V> {
   Future<List<String>> getAllKeys([IDBTransaction? txn]) async {
     if (_quickAccessCachedKeys != null) return _quickAccessCachedKeys!.toList();
     txn ??= boxCollection._db.transaction(name.toJS, 'readonly');
+    final keys = await _getAllKeysFromStore(txn);
+    _quickAccessCachedKeys = keys.toSet();
+    return keys;
+  }
+
+  /// Reads the keys from the object store, bypassing [_quickAccessCachedKeys].
+  ///
+  /// [put] and [delete] keep the cached key set complete, but in their own
+  /// mutation order rather than in the store's key order, while
+  /// [IDBObjectStore.getAll] always returns the values in key order. So only
+  /// freshly read keys may be zipped against those values.
+  Future<List<String>> _getAllKeysFromStore(IDBTransaction txn) async {
     final store = txn.objectStore(name);
     final getAllKeysCompleter = Completer();
     final request = store.getAllKeys();
     request.onerror = (Event event) {
-      Logs().e(
-        '[IndexedDBBox] [getAllKeys] Error - ${request.error?.toString()}',
-      );
+      Logs().e('[IndexedDBBox] [getAllKeys] Error - ${request.error}');
       getAllKeysCompleter.completeError(
-        '[IndexedDBBox] [getAllKeys] Error - ${request.error?.toString()}'.toJS,
+        '[IndexedDBBox] [getAllKeys] Error - ${request.error}'.toJS,
       );
     }.toJS;
     request.onsuccess = (Event event) {
       getAllKeysCompleter.complete();
     }.toJS;
     await getAllKeysCompleter.future;
-    final keys = (request.result?.dartify() as List?)?.cast<String>() ?? [];
-    _quickAccessCachedKeys = keys.toSet();
-    return keys;
+    return (request.result?.dartify() as List?)?.cast<String>() ?? [];
   }
 
   Future<Map<String, V>> getAllValues([IDBTransaction? txn]) async {
@@ -218,22 +223,23 @@ class Box<V> {
     /// NOTE: This is a workaround to get the keys as [IDBObjectStore.getAll()]
     /// only returns the values as a list.
     /// And using the [IDBObjectStore.openCursor()] method is not working as expected.
-    final keys = await getAllKeys(txn);
+    final keys = await _getAllKeysFromStore(txn);
+    _quickAccessCachedKeys = keys.toSet();
 
     final getAllValuesCompleter = Completer();
     final getAllValuesRequest = store.getAll();
     getAllValuesRequest.onerror = (Event event) {
       Logs().e(
-        '[IndexedDBBox] [getAllValues] Error - ${getAllValuesRequest.error?.toString()}',
+        '[IndexedDBBox] [getAllValues] Error - ${getAllValuesRequest.error}',
       );
       getAllValuesCompleter.completeError(
-        '[IndexedDBBox] [getAllValues] Error - ${getAllValuesRequest.error?.toString()}'
+        '[IndexedDBBox] [getAllValues] Error - ${getAllValuesRequest.error}'
             .toJS,
       );
     }.toJS;
     getAllValuesRequest.onsuccess = (Event event) {
       final values = getAllValuesRequest.result.dartify() as List;
-      for (int i = 0; i < values.length; i++) {
+      for (var i = 0; i < values.length; i++) {
         map[keys[i]] = _fromValue(values[i]) as V;
       }
       getAllValuesCompleter.complete();
@@ -249,12 +255,9 @@ class Box<V> {
     final getObjectRequest = store.get(key.toJS);
     final getObjectCompleter = Completer();
     getObjectRequest.onerror = (Event event) {
-      Logs().e(
-        '[IndexedDBBox] [get] Error - ${getObjectRequest.error?.toString()}',
-      );
+      Logs().e('[IndexedDBBox] [get] Error - ${getObjectRequest.error}');
       getObjectCompleter.completeError(
-        '[IndexedDBBox] [get] Error - ${getObjectRequest.error?.toString()}'
-            .toJS,
+        '[IndexedDBBox] [get] Error - ${getObjectRequest.error}'.toJS,
       );
     }.toJS;
     getObjectRequest.onsuccess = (Event event) {
@@ -266,7 +269,7 @@ class Box<V> {
   }
 
   Future<List<V?>> getAll(List<String> keys, [IDBTransaction? txn]) async {
-    if (keys.every((key) => _quickAccessCache.containsKey(key))) {
+    if (keys.every(_quickAccessCache.containsKey)) {
       return keys.map((key) => _quickAccessCache[key]).toList();
     }
     txn ??= boxCollection._db.transaction(name.toJS, 'readonly');
@@ -277,10 +280,10 @@ class Box<V> {
         final getObjectCompleter = Completer();
         getObjectRequest.onerror = (Event event) {
           Logs().e(
-            '[IndexedDBBox] [getAll] Error at key $key - ${getObjectRequest.error?.toString()}',
+            '[IndexedDBBox] [getAll] Error at key $key - ${getObjectRequest.error}',
           );
           getObjectCompleter.completeError(
-            '[IndexedDBBox] [getAll] Error at key $key - ${getObjectRequest.error?.toString()}'
+            '[IndexedDBBox] [getAll] Error at key $key - ${getObjectRequest.error}'
                 .toJS,
           );
         }.toJS;
@@ -310,11 +313,9 @@ class Box<V> {
     final putRequest = store.put(val.jsify(), key.toJS);
     final putCompleter = Completer();
     putRequest.onerror = (Event event) {
-      Logs().e(
-        '[IndexedDBBox] [put] Error - ${putRequest.error?.toString()}',
-      );
+      Logs().e('[IndexedDBBox] [put] Error - ${putRequest.error}');
       putCompleter.completeError(
-        '[IndexedDBBox] [put] Error - ${putRequest.error?.toString()}'.toJS,
+        '[IndexedDBBox] [put] Error - ${putRequest.error}'.toJS,
       );
     }.toJS;
     putRequest.onsuccess = (Event event) {
@@ -339,12 +340,9 @@ class Box<V> {
     final deleteRequest = store.delete(key.toJS);
     final deleteCompleter = Completer();
     deleteRequest.onerror = (Event event) {
-      Logs().e(
-        '[IndexedDBBox] [delete] Error - ${deleteRequest.error?.toString()}',
-      );
+      Logs().e('[IndexedDBBox] [delete] Error - ${deleteRequest.error}');
       deleteCompleter.completeError(
-        '[IndexedDBBox] [delete] Error - ${deleteRequest.error?.toString()}'
-            .toJS,
+        '[IndexedDBBox] [delete] Error - ${deleteRequest.error}'.toJS,
       );
     }.toJS;
     deleteRequest.onsuccess = (Event event) {
@@ -376,10 +374,10 @@ class Box<V> {
       final deleteCompleter = Completer();
       deleteRequest.onerror = (Event event) {
         Logs().e(
-          '[IndexedDBBox] [deleteAll] Error at key $key - ${deleteRequest.error?.toString()}',
+          '[IndexedDBBox] [deleteAll] Error at key $key - ${deleteRequest.error}',
         );
         deleteCompleter.completeError(
-          '[IndexedDBBox] [deleteAll] Error at key $key - ${deleteRequest.error?.toString()}'
+          '[IndexedDBBox] [deleteAll] Error at key $key - ${deleteRequest.error}'
               .toJS,
         );
       }.toJS;
@@ -400,19 +398,16 @@ class Box<V> {
 
   Future<void> clear([IDBTransaction? txn]) async {
     if (boxCollection._txnCache != null) {
-      boxCollection._txnCache!.add((txn) => clear(txn));
+      boxCollection._txnCache!.add(clear);
     } else {
       txn ??= boxCollection._db.transaction(name.toJS, 'readwrite');
       final store = txn.objectStore(name);
       final clearRequest = store.clear();
       final clearCompleter = Completer();
       clearRequest.onerror = (Event event) {
-        Logs().e(
-          '[IndexedDBBox] [clear] Error - ${clearRequest.error?.toString()}',
-        );
+        Logs().e('[IndexedDBBox] [clear] Error - ${clearRequest.error}');
         clearCompleter.completeError(
-          '[IndexedDBBox] [clear] Error - ${clearRequest.error?.toString()}'
-              .toJS,
+          '[IndexedDBBox] [clear] Error - ${clearRequest.error}'.toJS,
         );
       }.toJS;
       clearRequest.onsuccess = (Event event) {
@@ -431,6 +426,9 @@ class Box<V> {
       case const (Map<dynamic, dynamic>):
         return Map.unmodifiable(value as Map) as V;
       case const (int):
+        // Workaround that [JSAny.dartify] on wasm could turn an int into double
+        if (value is double) return value.round() as V;
+        return value as V;
       case const (double):
       case const (bool):
       case const (String):

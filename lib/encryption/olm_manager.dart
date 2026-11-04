@@ -1,20 +1,6 @@
-/*
- *   Famedly Matrix SDK
- *   Copyright (C) 2019, 2020, 2021 Famedly GmbH
- *
- *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU Affero General Public License as
- *   published by the Free Software Foundation, either version 3 of the
- *   License, or (at your option) any later version.
- *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *   GNU Affero General Public License for more details.
- *
- *   You should have received a copy of the GNU Affero General Public License
- *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2019-Present Famedly GmbH
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 import 'dart:convert';
 
@@ -23,14 +9,13 @@ import 'package:canonical_json/canonical_json.dart';
 import 'package:collection/collection.dart';
 import 'package:vodozemac/vodozemac.dart' as vod;
 
-import 'package:matrix/encryption/encryption.dart';
-import 'package:matrix/encryption/utils/json_signature_check_extension.dart';
-import 'package:matrix/encryption/utils/olm_session.dart';
-import 'package:matrix/encryption/utils/pickle_key.dart';
-import 'package:matrix/matrix.dart';
-import 'package:matrix/msc_extensions/msc_3814_dehydrated_devices/api.dart';
-import 'package:matrix/src/utils/run_benchmarked.dart';
-import 'package:matrix/src/utils/run_in_root.dart';
+import '../matrix.dart';
+import '../msc_extensions/msc_3814_dehydrated_devices/api.dart';
+import '../src/utils/run_in_root.dart';
+import 'encryption.dart';
+import 'utils/json_signature_check_extension.dart';
+import 'utils/olm_session.dart';
+import 'utils/pickle_key.dart';
 
 class OlmManager {
   final Encryption encryption;
@@ -76,10 +61,13 @@ class OlmManager {
         uploadDeviceKeys: true,
         updateDatabase: false,
         dehydratedDeviceAlgorithm: dehydratedDeviceAlgorithm,
-        dehydratedDevicePickleKey:
-            dehydratedDeviceAlgorithm != null ? pickleKey : null,
+        dehydratedDevicePickleKey: dehydratedDeviceAlgorithm != null
+            ? pickleKey
+            : null,
       )) {
-        throw ('Upload key failed');
+        // Reached from `Client.init` for a session that has no stored olm
+        // account, where failing to publish the keys costs the session.
+        throw ('Upload of the device keys for the new olm account failed');
       }
     } else {
       try {
@@ -141,6 +129,7 @@ class OlmManager {
     }
 
     if (_uploadKeysLock) {
+      Logs().w('Not uploading keys: another upload is already in flight');
       return false;
     }
     _uploadKeysLock = true;
@@ -158,8 +147,8 @@ class OlmManager {
         // still be used
         final oneTimeKeysCount =
             (olmAccount.maxNumberOfOneTimeKeys * 2 / 3).floor() -
-                oldKeyCount -
-                oldOTKsNeedingUpload;
+            oldKeyCount -
+            oldOTKsNeedingUpload;
         if (oneTimeKeysCount > 0) {
           olmAccount.generateOneTimeKeys(oneTimeKeysCount);
         }
@@ -191,8 +180,8 @@ class OlmManager {
 
       if (uploadDeviceKeys) {
         final keys = olmAccount.identityKeys;
-        deviceKeys['keys']['curve25519:$ourDeviceId'] =
-            keys.curve25519.toBase64();
+        deviceKeys['keys']['curve25519:$ourDeviceId'] = keys.curve25519
+            .toBase64();
         deviceKeys['keys']['ed25519:$ourDeviceId'] = keys.ed25519.toBase64();
         deviceKeys = signJson(deviceKeys);
       }
@@ -201,9 +190,7 @@ class OlmManager {
       for (final entry in olmAccount.oneTimeKeys.entries) {
         final key = entry.key;
         final value = entry.value.toBase64();
-        signedOneTimeKeys['signed_curve25519:$key'] = signJson({
-          'key': value,
-        });
+        signedOneTimeKeys['signed_curve25519:$key'] = signJson({'key': value});
       }
 
       final signedFallbackKeys = <String, dynamic>{};
@@ -239,28 +226,32 @@ class OlmManager {
         await client.uploadDehydratedDevice(
           deviceId: ourDeviceId!,
           initialDeviceDisplayName: client.dehydratedDeviceDisplayName,
-          deviceKeys:
-              uploadDeviceKeys ? MatrixDeviceKeys.fromJson(deviceKeys) : null,
+          deviceKeys: uploadDeviceKeys
+              ? MatrixDeviceKeys.fromJson(deviceKeys)
+              : null,
           oneTimeKeys: signedOneTimeKeys,
           fallbackKeys: signedFallbackKeys,
           deviceData: {
             'algorithm': dehydratedDeviceAlgorithm,
-            'device': encryption.olmManager
-                .pickleOlmAccountWithKey(dehydratedDevicePickleKey),
+            'device': encryption.olmManager.pickleOlmAccountWithKey(
+              dehydratedDevicePickleKey,
+            ),
           },
         );
         return true;
       }
       final currentUpload = this.currentUpload = CancelableOperation.fromFuture(
         client.uploadKeys(
-          deviceKeys:
-              uploadDeviceKeys ? MatrixDeviceKeys.fromJson(deviceKeys) : null,
+          deviceKeys: uploadDeviceKeys
+              ? MatrixDeviceKeys.fromJson(deviceKeys)
+              : null,
           oneTimeKeys: signedOneTimeKeys,
           fallbackKeys: signedFallbackKeys,
         ),
       );
       final response = await currentUpload.valueOrCancellation();
       if (response == null) {
+        Logs().w('Not uploading keys: the upload was cancelled');
         _uploadKeysLock = false;
         return false;
       }
@@ -270,9 +261,15 @@ class OlmManager {
       if (updateDatabase) {
         await encryption.olmDatabase?.updateClientKeys(pickledOlmAccount!);
       }
-      return (uploadedOneTimeKeysCount != null &&
-              response['signed_curve25519'] == uploadedOneTimeKeysCount) ||
-          uploadedOneTimeKeysCount == null;
+      final uploaded = response['signed_curve25519'];
+      if (uploadedOneTimeKeysCount != null &&
+          uploaded != uploadedOneTimeKeysCount) {
+        Logs().w(
+          'Key upload accepted $uploaded of $uploadedOneTimeKeysCount one time keys',
+        );
+        return false;
+      }
+      return true;
     } on MatrixException catch (exception) {
       _uploadKeysLock = false;
 
@@ -298,6 +295,8 @@ class OlmManager {
           unusedFallbackKey: unusedFallbackKey,
           retry: retry - 1,
         );
+      } else {
+        Logs().w('Key upload was rejected by the homeserver', exception);
       }
     } finally {
       _uploadKeysLock = false;
@@ -359,8 +358,9 @@ class OlmManager {
     }
 
     _olmSessions[session.identityKey] ??= <OlmSession>[];
-    final ix = _olmSessions[session.identityKey]!
-        .indexWhere((s) => s.sessionId == session.sessionId);
+    final ix = _olmSessions[session.identityKey]!.indexWhere(
+      (s) => s.sessionId == session.sessionId,
+    );
     if (ix == -1) {
       // add a new session
       _olmSessions[session.identityKey]!.add(session);
@@ -407,10 +407,8 @@ class OlmManager {
         }
         if (device != null) {
           device.lastActive = DateTime.now();
-          await encryption.olmDatabase?.setLastActiveUserDeviceKey(
-            device.lastActive.millisecondsSinceEpoch,
-            device.userId,
-            device.deviceId!,
+          await client.database.storeDeviceKeysList(
+            client.userDeviceKeys[event.sender]!,
           );
         }
       } catch (e, s) {
@@ -486,8 +484,10 @@ class OlmManager {
   }
 
   Future<List<OlmSession>> getOlmSessionsFromDatabase(String senderKey) async {
-    final olmSessions =
-        await encryption.olmDatabase?.getOlmSessions(senderKey, client.userID!);
+    final olmSessions = await encryption.olmDatabase?.getOlmSessions(
+      senderKey,
+      client.userID!,
+    );
     return olmSessions?.where((sess) => sess.isValid).toList() ?? [];
   }
 
@@ -528,8 +528,9 @@ class OlmManager {
     sess.sort(
       (a, b) => a.lastReceived == b.lastReceived
           ? (a.sessionId ?? '').compareTo(b.sessionId ?? '')
-          : (b.lastReceived ?? DateTime(0))
-              .compareTo(a.lastReceived ?? DateTime(0)),
+          : (b.lastReceived ?? DateTime(0)).compareTo(
+              a.lastReceived ?? DateTime(0),
+            ),
     );
     return sess;
   }
@@ -580,7 +581,7 @@ class OlmManager {
         return event;
       }
       // retry to decrypt!
-      return _decryptToDeviceEvent(event);
+      return await _decryptToDeviceEvent(event);
     } catch (_) {
       // okay, the thing errored while decrypting. It is safe to assume that the olm session is corrupt and we should generate a new one
       runInRoot(() => restoreOlmSession(event.senderId, senderKey));
@@ -665,8 +666,10 @@ class OlmManager {
     Map<String, dynamic> payload, {
     bool getFromDb = true,
   }) async {
-    final sess =
-        await getOlmSessions(device.curve25519Key!, getFromDb: getFromDb);
+    final sess = await getOlmSessions(
+      device.curve25519Key!,
+      getFromDb: getFromDb,
+    );
     if (sess.isEmpty) {
       throw NoOlmSessionFoundException(device);
     }
@@ -683,10 +686,7 @@ class OlmManager {
     if (encryption.olmDatabase != null) {
       try {
         await encryption.olmDatabase?.setLastSentMessageUserDeviceKey(
-          json.encode({
-            'type': type,
-            'content': payload,
-          }),
+          json.encode({'type': type, 'content': payload}),
           device.userId,
           device.deviceId!,
         );
@@ -807,17 +807,17 @@ class SignableJsonMap {
   final Map<String, Object?>? unsigned;
 
   SignableJsonMap(Map<String, Object?> json)
-      : jsonMap = json,
-        signatures =
-            json.tryGetMap<String, Map<String, String>>('signatures') ?? {},
-        unsigned = json.tryGetMap<String, Object?>('unsigned') {
+    : jsonMap = json,
+      signatures =
+          json.tryGetMap<String, Map<String, String>>('signatures') ?? {},
+      unsigned = json.tryGetMap<String, Object?>('unsigned') {
     jsonMap.remove('signatures');
     jsonMap.remove('unsigned');
   }
 
   Map<String, Object?> toJson() => {
-        ...jsonMap,
-        'signatures': signatures,
-        if (unsigned != null) 'unsigned': unsigned,
-      };
+    ...jsonMap,
+    'signatures': signatures,
+    if (unsigned != null) 'unsigned': unsigned,
+  };
 }
